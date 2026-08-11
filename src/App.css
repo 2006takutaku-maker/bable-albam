@@ -33,7 +33,7 @@ html, body {
 }
 
 /* ==========================================
-   2. 虹色の反射が美しいリアルなシャボン玉
+   2. 虹色の反射が美しいシャボン玉の背景
    ========================================== */
 .bubble-container {
   position: fixed;
@@ -49,7 +49,6 @@ html, body {
 .bubble {
   position: absolute;
   border-radius: 50%;
-  /* 虹色の干渉色（ピンク、エメラルド、パープル、イエロー）が混ざり合うシャボン玉膜のグラデーション */
   background: 
     radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.4) 15%, transparent 35%),
     radial-gradient(circle at 70% 60%, rgba(255, 120, 200, 0.35) 0%, rgba(120, 220, 255, 0.3) 35%, rgba(255, 240, 120, 0.25) 70%, transparent 100%),
@@ -65,7 +64,6 @@ html, body {
   animation: floatAndGradualFade linear infinite, swayBubble ease-in-out infinite;
 }
 
-/* 下から上へ登り、上部に向かって自然に透明になって消える */
 @keyframes floatAndGradualFade {
   0% {
     transform: translateY(110vh) scale(0.6);

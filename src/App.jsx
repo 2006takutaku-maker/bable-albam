@@ -1,192 +1,191 @@
-/* ==========================================
-   1. ベース・リセット設定
-   ========================================== */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  -webkit-tap-highlight-color: transparent;
-}
+import React, { useState, useMemo } from 'react';
+import './App.css';
 
-html, body {
-  width: 100%;
-  min-height: 100%;
-  min-height: 100dvh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #121216;
-  overflow-x: hidden;
-  overflow-y: auto !important;
-  -webkit-text-size-adjust: 100%;
-}
+const MOCK_USERS = [
+  { id: 'u1', username: 'ゲストユーザー', handle: '@guest', avatar: { bg: '#ff758c' }, bio: 'Bubble Album へようこそ。' }
+];
 
-#root {
-  width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  align-items: center;
-  padding: 20px 10px 60px;
-  position: relative;
-  z-index: 1;
-}
+export default function App() {
+  // localStorage を使って一度ログインしたら次から自動ログインにする設定
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    return localStorage.getItem('isLoggedIn') === 'true';
+  });
+  const [currentUser, setCurrentUser] = useState(MOCK_USERS[0]);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  
+  // シャボン玉の生成設定
+  const bubbles = useMemo(() => {
+    return Array.from({ length: 35 }).map((_, i) => ({
+      id: i,
+      size: Math.floor(Math.random() * 60) + 20,
+      left: Math.random() * 100,
+      duration: Math.random() * 6 + 5,
+      delay: (i * 0.3) + (Math.random() * 1.5),
+      opacity: Math.random() * 0.35 + 0.55,
+      swayDuration: Math.random() * 3 + 2,
+    }));
+  }, []);
 
-/* ==========================================
-   2. 虹色の反射が美しいシャボン玉の背景
-   ========================================== */
-.bubble-container {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
+  const handleLogin = () => {
+    setIsLoggedIn(true);
+    localStorage.setItem('isLoggedIn', 'true');
+  };
 
-.bubble {
-  position: absolute;
-  border-radius: 50%;
-  background: 
-    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.4) 15%, transparent 35%),
-    radial-gradient(circle at 70% 60%, rgba(255, 120, 200, 0.35) 0%, rgba(120, 220, 255, 0.3) 35%, rgba(255, 240, 120, 0.25) 70%, transparent 100%),
-    linear-gradient(135deg, rgba(255, 100, 180, 0.3) 0%, rgba(100, 220, 255, 0.3) 50%, rgba(180, 100, 255, 0.3) 100%);
-  border: 1.5px solid rgba(255, 255, 255, 0.7);
-  box-shadow: 
-    inset 0 0 14px rgba(255, 255, 255, 0.9),
-    inset 6px 6px 18px rgba(255, 150, 220, 0.5),
-    inset -6px -6px 18px rgba(100, 220, 255, 0.5),
-    0 8px 25px rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(0.4px);
-  -webkit-backdrop-filter: blur(0.4px);
-  animation: floatAndGradualFade linear infinite, swayBubble ease-in-out infinite;
-}
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    localStorage.removeItem('isLoggedIn');
+  };
 
-@keyframes floatAndGradualFade {
-  0% {
-    transform: translateY(110vh) scale(0.6);
-    opacity: 0;
-  }
-  15% {
-    opacity: var(--bubble-opacity, 0.85);
-  }
-  65% {
-    opacity: var(--bubble-opacity, 0.85);
-  }
-  100% {
-    transform: translateY(-15vh) scale(1.1);
-    opacity: 0;
-  }
-}
+  return (
+    <div className="app-container">
+      {/* 背景のシャボン玉 */}
+      <div className="bubble-container">
+        {bubbles.map(b => (
+          <div
+            key={b.id}
+            className="bubble"
+            style={{
+              width: `${b.size}px`,
+              height: `${b.size}px`,
+              left: `${b.left}%`,
+              '--bubble-opacity': b.opacity,
+              animationDuration: `${b.duration}s, ${b.swayDuration}s`,
+              animationDelay: `${b.delay}s, 0s`,
+            }}
+          />
+        ))}
+      </div>
 
-@keyframes swayBubble {
-  0%, 100% {
-    margin-left: 0px;
-  }
-  50% {
-    margin-left: 45px;
-  }
-}
+      {!isLoggedIn ? (
+        <div className="profile-card" style={{ marginTop: '100px', textAlign: 'center', padding: '30px', zIndex: 10 }}>
+          <h2>Bubble Album</h2>
+          <p style={{ color: '#b0b0c0', margin: '15px 0' }}>ログインすると自動で状態が保持されます。</p>
+          <button 
+            className="logout-btn"
+            style={{ 
+              backgroundColor: '#ff758c', 
+              color: '#fff', 
+              border: 'none', 
+              padding: '10px 24px', 
+              borderRadius: '20px', 
+              fontWeight: 'bold'
+            }}
+            onClick={handleLogin}
+          >
+            ログインする
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* ヘッダーメニュー */}
+          <div className="menu-header" style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            width: '100%', 
+            maxWidth: '600px', 
+            marginBottom: '20px'
+          }}>
+            <div 
+              className="profile-btn"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                cursor: 'pointer', 
+                backgroundColor: 'rgba(30, 30, 36, 0.9)', 
+                padding: '6px 14px', 
+                borderRadius: '20px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#fff'
+              }}
+              onClick={() => setIsProfileOpen(true)}
+            >
+              <span style={{ 
+                width: '24px', 
+                height: '24px', 
+                borderRadius: '50%', 
+                backgroundColor: currentUser.avatar.bg,
+                display: 'inline-block' 
+              }} />
+              <span><strong>{currentUser.username}</strong> ⚙️</span>
+            </div>
 
-/* ==========================================
-   3. ボタン・UIパーツ
-   ========================================== */
-button {
-  transition: opacity 0.2s ease, transform 0.1s ease;
-  cursor: pointer;
-  pointer-events: auto;
-}
+            <button 
+              className="logout-btn"
+              style={{ 
+                backgroundColor: '#e74c3c', 
+                color: '#fff', 
+                border: 'none', 
+                padding: '8px 16px', 
+                borderRadius: '20px', 
+                fontWeight: 'bold'
+              }} 
+              onClick={handleLogout}
+            >
+              ログアウト
+            </button>
+          </div>
 
-button:hover {
-  opacity: 0.85;
-}
+          {/* メインコンテンツ */}
+          <div className="main-content" style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: '600px' }}>
+            <div style={{ backgroundColor: '#1e1e24', padding: '24px', borderRadius: '16px', color: '#fff', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <h3>アルバムスペース</h3>
+              <p style={{ color: '#b0b0c0', marginTop: '10px' }}>自動ログインが有効になっています。</p>
+            </div>
+          </div>
 
-button:active {
-  transform: scale(0.98);
-}
-
-.menu-header, .profile-btn, .logout-btn {
-  position: relative;
-  z-index: 1000 !important;
-  pointer-events: auto !important;
-}
-
-/* ==========================================
-   4. プロフィールカード
-   ========================================== */
-.profile-card {
-  background-color: #1e1e24;
-  width: 100%;
-  max-width: 380px;
-  border-radius: 20px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
-  overflow: hidden;
-  color: #ffffff;
-  margin: 15px auto;
-  position: relative;
-  z-index: 10;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-
-.profile-cover {
-  height: 110px;
-  background: linear-gradient(135deg, #ff758c, #ff7eb3);
-}
-
-.profile-header {
-  padding: 0 20px 15px;
-  position: relative;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.profile-avatar {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
-  border: 4px solid #1e1e24;
-  margin-top: -38px;
-  object-fit: cover;
-  background-color: #2c2c35;
-}
-
-.profile-name {
-  font-size: 1.2rem;
-  font-weight: bold;
-  color: #ffffff;
-  margin: 8px 0 2px;
-}
-
-.profile-handle {
-  font-size: 0.85rem;
-  color: #b0b0c0;
-}
-
-.profile-bio {
-  font-size: 0.88rem;
-  color: #d0d0e0;
-  margin-top: 10px;
-  line-height: 1.5;
-}
-
-.profile-body {
-  padding: 16px 20px 20px;
-}
-
-.profile-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-
-.profile-tag {
-  background-color: rgba(255, 117, 140, 0.15);
-  color: #ff758c;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 0.8rem;
-  font-weight: 500;
-  border: 1px solid rgba(255, 117, 140, 0.3);
+          {/* プロフィールモーダル */}
+          {isProfileOpen && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 2000,
+              padding: '20px'
+            }} onClick={() => setIsProfileOpen(false)}>
+              <div className="profile-card" onClick={(e) => e.stopPropagation()}>
+                <div className="profile-cover" />
+                <div className="profile-header">
+                  <div className="profile-avatar" style={{ backgroundColor: currentUser.avatar.bg }} />
+                  <h2 className="profile-name">{currentUser.username}</h2>
+                  <div className="profile-handle">{currentUser.handle}</div>
+                  <div className="profile-bio">{currentUser.bio}</div>
+                </div>
+                <div className="profile-body">
+                  <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b0b0c0', marginBottom: '8px' }}>タグ</div>
+                  <div className="profile-tags">
+                    <span className="profile-tag">Bubble Album</span>
+                    <span className="profile-tag">自動ログイン</span>
+                  </div>
+                  <button 
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      backgroundColor: '#2c2c35',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      marginTop: '10px'
+                    }}
+                    onClick={() => setIsProfileOpen(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
