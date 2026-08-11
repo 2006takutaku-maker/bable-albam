@@ -180,3 +180,23 @@ button:active {
   opacity: 0.8;
   text-decoration: underline;
 }
+.btn-tag-toggle {
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-weight: bold;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+/* ON状態のとき（緑色） */
+.btn-tag-toggle.on {
+  background-color: #27ae60;
+}
+
+/* OFF状態のとき（グレー系） */
+.btn-tag-toggle.off {
+  background-color: #555555;
+  color: #aaaaaa;
+}
