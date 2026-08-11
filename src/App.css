@@ -13,42 +13,48 @@ html, body {
   min-height: 100%;
   min-height: 100dvh; /* スマホのアドレスバー対策 */
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #2b2b2b;
+  background-color: #2b2b2b; /* アプリ全体の背景色 */
   overflow-x: hidden;
-  overflow-y: auto !important;
-  -webkit-text-size-adjust: 100%;
+  overflow-y: auto !important; /* 縦スクロールを許可 */
+  -webkit-text-size-adjust: 100%; /* スマホでの勝手な文字拡大を防止 */
 }
 
+/* ★修正箇所：見切れの原因だった align-items: center を修正 */
 #root {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  justify-content: flex-start; /* 上詰めで配置 */
   align-items: center;
+  padding: 20px 10px 60px; /* 下部にしっかり余白(60px)を作ってログアウトボタンが見えるようにする */
 }
 
 /* ==========================================
-   2. 写真のぼやけ防止・高画質化設定
+   2. 写真のぼやけ防止・位置調整
    ========================================== */
+
+/* 写真（imgタグ）のぼやけ防止と高画質化 */
 img, .photo-img, .bubble-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  
-  /* ブラウザの画像補間を最適化 */
-  image-rendering: high-quality;
+  object-fit: cover; /* 枠いっぱいに綺麗に収める */
   image-rendering: -webkit-optimize-contrast;
   image-rendering: crisp-edges;
-
-  /* アニメーション中の変形・拡大に伴うぼやけ防止 */
-  -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
+  transform: translateZ(0);
+}
+
+/* 写真やメインコンテンツのエリア */
+.photo-container, .bubble-container, .main-content {
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto 15px;
 }
 
 /* ==========================================
-   3. 共通パーツ（ボタン・スライダー）
+   3. 共通パーツ（ボタン・スライダーなど）
    ========================================== */
 input[type="range"] {
   accent-color: #e67e22;
@@ -65,4 +71,182 @@ button:hover {
 
 button:active {
   transform: scale(0.98);
+}
+
+/* タブON/OFFボタン */
+.btn-tag-toggle {
+  border: none;
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-weight: bold;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+/* ON状態のとき（緑色） */
+.btn-tag-toggle.on {
+  background-color: #27ae60;
+}
+
+/* OFF状態のとき（グレー系） */
+.btn-tag-toggle.off {
+  background-color: #555555;
+  color: #aaaaaa;
+}
+
+/* ==========================================
+   4. プロフィールカード
+   ========================================== */
+.profile-card {
+  background-color: #383838; /* カードの背景（暗めのグレー） */
+  width: 100%;
+  max-width: 380px;
+  border-radius: 20px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  color: #ffffff;
+  margin: 15px auto;
+}
+
+/* ヘッダーカバー領域 */
+.profile-cover {
+  height: 110px;
+  background: linear-gradient(135deg, #e67e22, #f39c12);
+}
+
+/* プロフィールヘッダー情報 */
+.profile-header {
+  padding: 0 20px 15px;
+  position: relative;
+  border-bottom: 1px solid #444444;
+}
+
+/* アバター画像 */
+.profile-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 4px solid #383838;
+  margin-top: -38px;
+  object-fit: cover;
+  background-color: #555555;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.profile-user-info {
+  margin-top: 8px;
+}
+
+.profile-name {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #ffffff;
+  margin: 0;
+}
+
+.profile-handle {
+  font-size: 0.85rem;
+  color: #bbbbbb;
+  margin-top: 2px;
+}
+
+.profile-bio {
+  font-size: 0.88rem;
+  color: #dddddd;
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+/* カード本文領域 */
+.profile-body {
+  padding: 16px 20px 20px;
+}
+
+.profile-section-title {
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: #aaaaaa;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+/* タグ一覧 */
+.profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.profile-tag {
+  background-color: rgba(230, 126, 34, 0.15);
+  color: #e67e22;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid rgba(230, 126, 34, 0.3);
+}
+
+/* リンク一覧 */
+.profile-links a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e67e22;
+  text-decoration: none;
+  font-size: 0.88rem;
+  padding: 6px 0;
+  transition: opacity 0.2s ease;
+}
+
+.profile-links a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* ==========================================
+   5. スマホ（画面幅768px以下）最適化調整
+   ========================================== */
+@media (max-width: 768px) {
+  /* 上部ボタン・ナビゲーションエリア */
+  .nav-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    justify-content: center;
+    margin-bottom: 15px;
+  }
+
+  /* 下部ジャンルタブを横スクロール可能に */
+  .genre-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 5px;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .genre-bar::-webkit-scrollbar {
+    display: none;
+  }
+}
+* プロフィールボタンとログアウトボタンの重なり対策 */
+.logout-btn, .profile-btn, .btn-logout {
+  position: relative; /* 重なり順を制御するための基準 */
+  z-index: 10;        /* 数値を大きくして一番手前に表示 */
+  cursor: pointer;    /* クリック可能であることを明示 */
+  pointer-events: auto; /* クリックイベントを有効化 */
+}
+
+/* もし全体を覆っているコンテナがあれば、それが邪魔をしていないか確認 */
+.main-content, .app-container {
+  position: relative;
+  z-index: 1;
 }
