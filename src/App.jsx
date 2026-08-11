@@ -41,6 +41,32 @@ const AVATARS = [
   { type: 'emoji', emoji: '🦁', bg: '#e17055' }
 ];
 
+// 画像圧縮ユーティリティ関数
+const compressImage = (dataUrl, maxWidth = 1000, quality = 0.7) => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = dataUrl;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+  });
+};
+
 export default function App() {
   // 認証関連の状態
   const [currentUser, setCurrentUser] = useState(null);
@@ -48,9 +74,12 @@ export default function App() {
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   
-  // アイコン選択用の状態
+  // アイコン選択用の状態（登録用）
   const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(0);
   const [customAvatar, setCustomAvatar] = useState(null);
+
+  // モーダル・プロフィール編集用の状態
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   // アプリ状態
   const [currentScreen, setCurrentScreen] = useState('auth'); // 'auth' | 'menu' | 'album'
@@ -58,9 +87,10 @@ export default function App() {
   const [roomNumber, setRoomNumber] = useState('');
   const [roomInput, setRoomInput] = useState('');
 
-  // ジャンル（カテゴリータブ）管理
+  // ジャンル（カテゴリータブ）管理＆表示OFFフラグ
   const [genres, setGenres] = useState(['すべて', '日常', '旅行', 'イベント']);
   const [selectedGenre, setSelectedGenre] = useState('すべて');
+  const [showGenreBar, setShowGenreBar] = useState(true); // タブバーON/OFF
 
   // メンバー一覧・アルバムデータ関連
   const [roomMembers, setRoomMembers] = useState([]);
@@ -156,7 +186,7 @@ export default function App() {
 
     // 3. 共有ルームメンバーのリアルタイム監視
     let unsubscribeMembers = () => {};
-    if (activeTab === 'shared') {
+    if (activeTab === 'shared' && currentUser) {
       const membersRef = collection(db, 'albums', albumKey, 'members');
       unsubscribeMembers = onSnapshot(membersRef, (snapshot) => {
         const loadedMembers = snapshot.docs.map(doc => doc.data());
@@ -177,6 +207,18 @@ export default function App() {
       unsubscribeMembers();
     };
   }, [currentScreen, albumKey, activeTab, currentUser]);
+
+  // ユーザー情報の最新化監視
+  useEffect(() => {
+    if (!currentUser?.username) return;
+    const userRef = doc(db, 'users', currentUser.username);
+    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setCurrentUser(docSnap.data());
+      }
+    });
+    return () => unsubscribeUser();
+  }, [currentUser?.username]);
 
   // 設定の更新
   const updateSettings = async (newSettings) => {
@@ -203,14 +245,20 @@ export default function App() {
   };
 
   // カスタムアイコン選択ハンドラー
-  const handleCustomAvatarUpload = (e) => {
+  const handleCustomAvatarUpload = (e, callback) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
-      setCustomAvatar({ type: 'image', url: event.target.result });
-      setSelectedAvatarIdx(-1);
+    reader.onload = async (event) => {
+      const compressed = await compressImage(event.target.result, 300, 0.8);
+      const newAvatar = { type: 'image', url: compressed };
+      if (callback) {
+        callback(newAvatar);
+      } else {
+        setCustomAvatar(newAvatar);
+        setSelectedAvatarIdx(-1);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -250,7 +298,7 @@ export default function App() {
         };
 
         await setDoc(userRef, newUser);
-        setCurrentUser({ username, avatar: newUser.avatar });
+        setCurrentUser(newUser);
         alert('アカウントを作成しました！');
         setCurrentScreen('menu');
       } else {
@@ -267,6 +315,7 @@ export default function App() {
 
         setCurrentUser({
           username: userData.username,
+          password: userData.password,
           avatar: userData.avatar || AVATARS[0]
         });
         setCurrentScreen('menu');
@@ -278,10 +327,35 @@ export default function App() {
     }
   };
 
+  // プロフィール更新処理（Firebase＆Stateに即座に反映）
+  const handleUpdateProfile = async (updatedData) => {
+    try {
+      const userRef = doc(db, 'users', currentUser.username);
+      await setDoc(userRef, updatedData, { merge: true });
+      setCurrentUser((prev) => ({ ...prev, ...updatedData }));
+      
+      // 共有ルーム参加中の場合、メンバー情報も更新
+      if (activeTab === 'shared' && roomNumber) {
+        const myMemberRef = doc(db, 'albums', albumKey, 'members', currentUser.username);
+        await setDoc(myMemberRef, {
+          username: currentUser.username,
+          avatar: updatedData.avatar || currentUser.avatar,
+        }, { merge: true });
+      }
+
+      alert('プロフィールを更新しました！');
+      setIsProfileOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('プロフィールの更新に失敗しました。');
+    }
+  };
+
   const handleLogout = () => {
     setCurrentUser(null);
     setCurrentScreen('auth');
     setIsTocOpen(false);
+    setIsProfileOpen(false);
   };
 
   const enterPrivateAlbum = () => {
@@ -307,25 +381,28 @@ export default function App() {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    const genreToAssign = selectedGenre === 'すべて' ? (genres[1] || '未分類') : selectedGenre;
+    const genreToAssign = (!showGenreBar || selectedGenre === 'すべて') ? (genres[1] || '未分類') : selectedGenre;
 
     files.forEach((file) => {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        createBubble(event.target.result, genreToAssign);
+      reader.onload = async (event) => {
+        const compressed = await compressImage(event.target.result, 800, 0.75);
+        createBubble(compressed, genreToAssign);
       };
       reader.readAsDataURL(file);
     });
   };
 
+  // 背景画像アップロード
   const handleBgImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
+      const compressedBg = await compressImage(event.target.result, 1200, 0.7);
       updateSettings({
-        bgImage: event.target.result,
+        bgImage: compressedBg,
         bgType: 'image'
       });
     };
@@ -338,9 +415,7 @@ export default function App() {
 
   const createBubble = async (imgSrc, genre) => {
     const depth = Math.random();
-    // ぼやけを防ぐためシャボン玉のサイズを拡大
     const size = Math.floor(depth * 120) + 80;
-    // ぼやけ(blur)を無くして高画質に保つ
     const opacity = 0.5 + depth * 0.5;
     const blur = 0; 
     const zIndex = Math.floor(depth * 100);
@@ -411,7 +486,8 @@ export default function App() {
       backgroundStyle = {
         backgroundImage: `url(${albumSettings.bgImage})`,
         backgroundSize: 'cover',
-        backgroundPosition: 'center'
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat'
       };
     } else {
       backgroundStyle = { background: albumSettings.presetBg };
@@ -441,7 +517,7 @@ export default function App() {
     );
   };
 
-  const filteredBubbles = selectedGenre === 'すべて'
+  const filteredBubbles = (!showGenreBar || selectedGenre === 'すべて')
     ? bubbles
     : bubbles.filter(b => b.genre === selectedGenre);
 
@@ -501,7 +577,7 @@ export default function App() {
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={handleCustomAvatarUpload}
+                      onChange={(e) => handleCustomAvatarUpload(e)}
                       style={{ display: 'none' }}
                     />
                   </label>
@@ -537,11 +613,15 @@ export default function App() {
     return (
       <div style={styles.menuContainer}>
         <div style={styles.menuHeader}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser.avatar?.bg || 'transparent' }}>
-              {renderAvatarIcon(currentUser.avatar)}
+          <div 
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '20px' }}
+            onClick={() => setIsProfileOpen(true)}
+            title="プロフィール設定を開く"
+          >
+            <span style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser?.avatar?.bg || 'transparent' }}>
+              {renderAvatarIcon(currentUser?.avatar)}
             </span>
-            <span><strong>{currentUser.username}</strong></span>
+            <span><strong>{currentUser?.username}</strong> ⚙️</span>
           </div>
           <button style={styles.logoutBtn} onClick={handleLogout}>ログアウト</button>
         </div>
@@ -574,6 +654,17 @@ export default function App() {
             </form>
           </div>
         </div>
+
+        {/* プロフィール編集モーダル */}
+        {isProfileOpen && (
+          <ProfileModal
+            user={currentUser}
+            onClose={() => setIsProfileOpen(false)}
+            onSave={handleUpdateProfile}
+            renderAvatarIcon={renderAvatarIcon}
+            handleCustomAvatarUpload={handleCustomAvatarUpload}
+          />
+        )}
       </div>
     );
   }
@@ -610,6 +701,18 @@ export default function App() {
             📖 もくじ・設定
           </button>
 
+          {/* ジャンルタブのON/OFF切替ボタン */}
+          <button 
+            style={{
+              ...styles.toggleGenreBtn,
+              backgroundColor: showGenreBar ? 'rgba(40, 167, 69, 0.7)' : 'rgba(108, 117, 125, 0.7)'
+            }} 
+            onClick={() => setShowGenreBar(!showGenreBar)}
+            title="ジャンルタブの表示・非表示を切り替え"
+          >
+            🏷️ タブ {showGenreBar ? 'ON' : 'OFF'}
+          </button>
+
           <label style={styles.uploadBtn}>
             ＋ 写真を追加
             <input
@@ -620,29 +723,46 @@ export default function App() {
               style={{ display: 'none' }}
             />
           </label>
+
+          {/* 右上ユーザープロフィールアイコンボタン */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.2)' }}
+            onClick={() => setIsProfileOpen(true)}
+            title="プロフィール設定"
+          >
+            <div style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser?.avatar?.bg || 'transparent' }}>
+              {renderAvatarIcon(currentUser?.avatar)}
+            </div>
+            <span style={{ color: '#fff', fontSize: '12px' }}>{currentUser?.username}</span>
+          </div>
         </div>
 
-        {/* ジャンル切り替えタブバー */}
-        <div style={styles.genreTabBar}>
-          <span style={styles.genreLabel}>🏷️ ジャンル:</span>
-          {genres.map((g) => (
-            <button
-              key={g}
-              style={{
-                ...styles.genreTabBtn,
-                backgroundColor: selectedGenre === g ? '#007bff' : 'rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontWeight: selectedGenre === g ? 'bold' : 'normal'
-              }}
-              onClick={() => setSelectedGenre(g)}
-            >
-              {g}
-            </button>
-          ))}
-          <button style={styles.addGenreBtn} onClick={handleAddGenre} title="ジャンルを追加">
-            ＋ タブ追加
-          </button>
-        </div>
+        {/* ジャンル切り替えタブバー (ul / li 構成、ON/OFF可能) */}
+        {showGenreBar && (
+          <ul style={styles.genreTabBar}>
+            <li style={{ color: '#aaa', fontSize: '12px', listStyle: 'none', marginRight: '4px' }}>🏷️ ジャンル:</li>
+            {genres.map((g) => (
+              <li key={g} style={{ listStyle: 'none' }}>
+                <button
+                  style={{
+                    ...styles.genreTabBtn,
+                    backgroundColor: selectedGenre === g ? '#007bff' : 'rgba(255,255,255,0.15)',
+                    color: '#fff',
+                    fontWeight: selectedGenre === g ? 'bold' : 'normal'
+                  }}
+                  onClick={() => setSelectedGenre(g)}
+                >
+                  {g}
+                </button>
+              </li>
+            ))}
+            <li style={{ listStyle: 'none' }}>
+              <button style={styles.addGenreBtn} onClick={handleAddGenre} title="ジャンルを追加">
+                ＋ タブ追加
+              </button>
+            </li>
+          </ul>
+        )}
       </div>
 
       {/* もくじ・設定パネル */}
@@ -688,7 +808,7 @@ export default function App() {
           {tocActiveTab === 'photos' && (
             <div style={styles.tocListContainer}>
               <div style={styles.listHeader}>
-                <span style={styles.settingLabel}>📷 [{selectedGenre}] の写真</span>
+                <span style={styles.settingLabel}>📷 [{showGenreBar ? selectedGenre : 'すべて'}] の写真</span>
                 {bubbles.length > 0 && (
                   <button style={styles.clearAllBtn} onClick={handleClearAll}>
                     すべて削除
@@ -697,7 +817,7 @@ export default function App() {
               </div>
 
               {filteredBubbles.length === 0 ? (
-                <p style={styles.emptyTocText}>このジャンルには写真がありません</p>
+                <p style={styles.emptyTocText}>写真がありません</p>
               ) : (
                 <div style={styles.thumbGrid}>
                   {filteredBubbles.map((b, idx) => (
@@ -804,8 +924,8 @@ export default function App() {
       {/* 写真未登録時の案内 */}
       {filteredBubbles.length === 0 && (
         <div style={styles.emptyText}>
-          【{selectedGenre}】ジャンルの写真はありません<br />
-          「＋ 写真を追加」から選択中のジャンルに画像を追加できます✨
+          写真はありません<br />
+          「＋ 写真を追加」から画像を追加できます✨
         </div>
       )}
 
@@ -846,7 +966,7 @@ export default function App() {
         })}
       </div>
 
-      {/* モーダル表示 */}
+      {/* モーダル表示 (拡大画像) */}
       {selectedImage && (
         <div style={styles.modalOverlay} onClick={() => setSelectedImage(null)}>
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
@@ -858,8 +978,18 @@ export default function App() {
         </div>
       )}
 
+      {/* プロフィール編集モーダル */}
+      {isProfileOpen && (
+        <ProfileModal
+          user={currentUser}
+          onClose={() => setIsProfileOpen(false)}
+          onSave={handleUpdateProfile}
+          renderAvatarIcon={renderAvatarIcon}
+          handleCustomAvatarUpload={handleCustomAvatarUpload}
+        />
+      )}
+
       <style>{`
-        /* 浮遊範囲を画面上部を大きく突き抜ける位置(-250px)まで引き上げ */
         @keyframes floatUp {
           0% { transform: translateY(105vh); }
           100% { transform: translateY(-250px); }
@@ -873,6 +1003,104 @@ export default function App() {
   );
 }
 
+// ---------------------------------------------------------
+// プロフィール画面 (モーダルコンポーネント)
+// ---------------------------------------------------------
+function ProfileModal({ user, onClose, onSave, renderAvatarIcon, handleCustomAvatarUpload }) {
+  const [avatar, setAvatar] = useState(user?.avatar || AVATARS[0]);
+  const [password, setPassword] = useState(user?.password || '');
+
+  const handleSelectPreset = (av) => {
+    setAvatar(av);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    onSave({
+      avatar,
+      password
+    });
+  };
+
+  return (
+    <div style={styles.modalOverlay} onClick={onClose}>
+      <div style={styles.profileModalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+          <h2 style={{ color: '#fff', margin: 0, fontSize: '18px' }}>👤 プロフィール設定</h2>
+          <button style={styles.closeTocBtn} onClick={onClose}>✕</button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={{ textAlign: 'center', margin: '10px 0' }}>
+            <div style={{ width: '60px', height: '60px', borderRadius: '50%', margin: '0 auto 10px', backgroundColor: avatar.bg || '#444', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '2px solid #fff' }}>
+              {renderAvatarIcon(avatar, { fontSize: '28px' })}
+            </div>
+            <span style={{ color: '#fff', fontWeight: 'bold' }}>{user?.username}</span>
+          </div>
+
+          <div style={styles.avatarPickerSection}>
+            <span style={{ color: '#ccc', fontSize: '12px' }}>アイコンの変更:</span>
+            <div style={styles.avatarGrid}>
+              {AVATARS.map((av, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => handleSelectPreset(av)}
+                  style={{
+                    ...styles.avatarBadge,
+                    backgroundColor: av.bg,
+                    border: avatar.emoji === av.emoji ? '2px solid #fff' : '2px solid transparent'
+                  }}
+                >
+                  {av.emoji}
+                </div>
+              ))}
+              <label
+                style={{
+                  ...styles.avatarBadge,
+                  backgroundColor: '#555',
+                  border: avatar.type === 'image' ? '2px solid #007bff' : '2px solid transparent',
+                  overflow: 'hidden'
+                }}
+                title="画像をアップロード"
+              >
+                {avatar.type === 'image' ? (
+                  <img src={avatar.url} alt="custom" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  '📷'
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleCustomAvatarUpload(e, (newAv) => setAvatar(newAv))}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div style={{ textAlign: 'left' }}>
+            <span style={{ color: '#ccc', fontSize: '12px', display: 'block', marginBottom: '4px' }}>新しいパスワード:</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              style={styles.input}
+              placeholder="パスワード"
+            />
+          </div>
+
+          <button type="submit" style={styles.submitBtn}>
+            変更を保存
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------
+// スタイル定義
+// ---------------------------------------------------------
 const styles = {
   authContainer: {
     width: '100vw',
@@ -901,7 +1129,7 @@ const styles = {
   avatarGrid: { display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' },
   avatarBadge: { width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '18px' },
   avatarBadgeSmall: { width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  input: { padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '13px', outline: 'none' },
+  input: { width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '13px', outline: 'none' },
   submitBtn: { padding: '10px', backgroundColor: '#007bff', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', marginTop: '10px' },
 
   menuContainer: {
@@ -924,75 +1152,62 @@ const styles = {
 
   container: { width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', fontFamily: 'sans-serif', transition: 'background 0.5s ease' },
   header: { position: 'absolute', top: '15px', left: '15px', zIndex: 150, display: 'flex', flexDirection: 'column', gap: '10px' },
-  topControlRow: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
-  backMenuBtn: { backgroundColor: 'rgba(0, 0, 0, 0.5)', color: '#fff', padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px' },
-  badge: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', backdropFilter: 'blur(5px)' },
-  
-  membersBar: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 10px', borderRadius: '20px' },
-  memberTag: { display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 8px 2px 4px', borderRadius: '12px' },
-  memberName: { color: '#fff', fontSize: '11px', fontWeight: 'bold' },
+  topControlRow: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
+  backMenuBtn: { padding: '6px 12px', backgroundColor: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' },
+  badge: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', backdropFilter: 'blur(5px)' },
+  membersBar: { display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 10px', borderRadius: '20px' },
+  memberTag: { display: 'flex', alignItems: 'center', gap: '4px' },
+  memberName: { color: '#fff', fontSize: '11px' },
+  tocToggleBtn: { padding: '6px 12px', backgroundColor: 'rgba(255,255,255,0.25)', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', backdropFilter: 'blur(5px)' },
+  toggleGenreBtn: { padding: '6px 12px', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', backdropFilter: 'blur(5px)' },
+  uploadBtn: { padding: '6px 14px', backgroundColor: '#007bff', color: '#fff', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', display: 'inline-block' },
 
-  tocToggleBtn: { backgroundColor: 'rgba(0, 0, 0, 0.5)', color: '#fff', padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' },
-  uploadBtn: { backgroundColor: '#28a745', color: '#fff', padding: '6px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' },
+  genreTabBar: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(0,0,0,0.4)', padding: '6px 12px', borderRadius: '20px', backdropFilter: 'blur(5px)', maxWidth: '85vw', overflowX: 'auto', margin: 0 },
+  genreTabBtn: { border: 'none', padding: '4px 10px', borderRadius: '12px', cursor: 'pointer', fontSize: '11px', transition: 'all 0.2s' },
+  addGenreBtn: { backgroundColor: 'transparent', color: '#00d2d3', border: '1px dashed #00d2d3', padding: '3px 8px', borderRadius: '12px', cursor: 'pointer', fontSize: '11px' },
 
-  genreTabBar: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', backgroundColor: 'rgba(0,0,0,0.3)', padding: '6px 12px', borderRadius: '20px', backdropFilter: 'blur(5px)' },
-  genreLabel: { color: '#aaa', fontSize: '11px', fontWeight: 'bold', marginRight: '4px' },
-  genreTabBtn: { border: 'none', padding: '4px 12px', borderRadius: '14px', cursor: 'pointer', fontSize: '12px', transition: 'all 0.2s ease' },
-  addGenreBtn: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px dashed rgba(255,255,255,0.5)', padding: '4px 10px', borderRadius: '14px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' },
+  tocPanel: { position: 'absolute', top: 0, left: 0, width: '320px', height: '100%', backgroundColor: 'rgba(15, 23, 42, 0.92)', backdropFilter: 'blur(15px)', zIndex: 200, transition: 'transform 0.3s ease-in-out', boxShadow: '4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' },
+  tocHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)' },
+  tocTitle: { color: '#fff', fontSize: '16px', margin: 0 },
+  closeTocBtn: { background: 'none', border: 'none', color: '#aaa', fontSize: '18px', cursor: 'pointer' },
+  tocTabGroup: { display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)' },
+  tocTabBtn: { flex: 1, background: 'none', border: 'none', padding: '12px', cursor: 'pointer', fontSize: '13px' },
+  tocContent: { flex: 1, overflowY: 'auto', padding: '15px' },
+  tocListContainer: { display: 'flex', flexDirection: 'column', gap: '10px' },
+  listHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  settingLabel: { color: '#fff', fontSize: '13px', fontWeight: 'bold' },
+  clearAllBtn: { backgroundColor: '#dc3545', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
+  emptyTocText: { color: '#888', fontSize: '12px', textAlign: 'center', marginTop: '20px' },
+  thumbGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginTop: '10px' },
+  thumbCard: { position: 'relative', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' },
+  thumbImg: { width: '100%', height: '90px', objectFit: 'cover', cursor: 'pointer', display: 'block' },
+  thumbAuthorBox: { display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 6px', backgroundColor: 'rgba(0,0,0,0.6)' },
+  thumbAuthorText: { color: '#ccc', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  deleteThumbBtn: { width: '100%', backgroundColor: 'rgba(220, 53, 69, 0.8)', color: '#fff', border: 'none', padding: '4px', fontSize: '10px', cursor: 'pointer' },
 
-  tocPanel: { position: 'absolute', top: 0, left: 0, width: '320px', height: '100vh', backgroundColor: 'rgba(20, 25, 35, 0.95)', backdropFilter: 'blur(10px)', zIndex: 200, transition: 'transform 0.3s ease-in-out', padding: '20px', boxSizing: 'border-box', color: '#fff' },
-  tocHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' },
-  tocTitle: { fontSize: '16px', margin: 0 },
-  closeTocBtn: { background: 'none', border: 'none', color: '#ccc', fontSize: '20px', cursor: 'pointer' },
-  
-  tocTabGroup: { display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.15)', marginBottom: '15px' },
-  tocTabBtn: { flex: 1, background: 'none', border: 'none', padding: '8px 0', cursor: 'pointer', fontSize: '12px' },
+  settingSection: { marginBottom: '20px' },
+  presetGroup: { display: 'flex', gap: '8px', marginTop: '10px' },
+  presetBtn: { width: '32px', height: '32px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.5)', cursor: 'pointer' },
+  colorPickerRow: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px' },
+  subLabel: { color: '#aaa', fontSize: '12px' },
+  colorInput: { border: 'none', width: '30px', height: '30px', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'transparent' },
+  bgUploadBtn: { display: 'block', backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', textAlign: 'center', cursor: 'pointer', border: '1px dashed rgba(255,255,255,0.3)' },
+  speedGroup: { display: 'flex', gap: '6px', marginTop: '10px' },
+  speedBtn: { flex: 1, color: '#fff', border: 'none', padding: '6px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' },
 
-  tocContent: { display: 'flex', flexDirection: 'column', height: 'calc(100% - 90px)', overflowY: 'auto' },
-  settingSection: { marginBottom: '20px', backgroundColor: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px' },
-  settingLabel: { fontSize: '12px', fontWeight: 'bold', color: '#ddd', marginBottom: '8px' },
-  presetGroup: { display: 'flex', gap: '8px', marginBottom: '10px' },
-  presetBtn: { flex: 1, height: '28px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer' },
-  colorPickerRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  subLabel: { fontSize: '11px', color: '#aaa' },
-  colorInput: { border: 'none', width: '28px', height: '28px', cursor: 'pointer', background: 'none' },
-  bgUploadBtn: { display: 'block', textAlign: 'center', backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff', padding: '6px 0', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', border: '1px dashed rgba(255,255,255,0.4)' },
-  speedGroup: { display: 'flex', gap: '6px' },
-  speedBtn: { flex: 1, padding: '5px 0', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' },
-  tocListContainer: { flex: 1 },
-  listHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' },
-  clearAllBtn: { backgroundColor: '#dc3545', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
-  emptyTocText: { fontSize: '12px', color: '#666', textAlign: 'center', marginTop: '20px' },
-  thumbGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' },
-  thumbCard: { position: 'relative', height: '90px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#000', cursor: 'pointer' },
-  thumbImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  thumbAuthorBox: { position: 'absolute', top: '4px', left: '4px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(0,0,0,0.6)', padding: '2px 6px', borderRadius: '10px' },
-  thumbAuthorText: { color: '#fff', fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60px' },
-  deleteThumbBtn: { position: 'absolute', bottom: '4px', right: '4px', backgroundColor: 'rgba(220,53,69,0.8)', color: '#fff', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
-  emptyText: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'center', textShadow: '0 2px 4px rgba(0,0,0,0.8)', lineHeight: '1.6' },
-  stage: { width: '100%', height: '100%', position: 'relative' },
-  bubbleWrapper: { position: 'absolute', bottom: 0, cursor: 'pointer', willChange: 'transform' },
-  bubbleGlass: {
-    width: '100%', height: '100%', borderRadius: '50%', position: 'relative', overflow: 'hidden',
-    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.35), rgba(255,255,255,0.05) 70%)',
-    boxShadow: 'inset 0 0 20px rgba(255,255,255,0.6), inset 10px 0 15px rgba(255,0,150,0.3), inset -10px 0 15px rgba(0,255,255,0.3), 0 0 15px rgba(255,255,255,0.4)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center'
-  },
-  // 高画質表示用スタイルの適用
-  bubbleImg: { 
-    width: '85%', 
-    height: '85%', 
-    objectFit: 'cover', 
-    borderRadius: '50%',
-    imageRendering: 'high-quality',
-    WebkitBackfaceVisibility: 'hidden',
-    backfaceVisibility: 'hidden',
-    transform: 'translateZ(0)'
-  },
-  bubbleAuthorBadge: { position: 'absolute', bottom: '10%', right: '10%', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', border: '1px solid #fff', zIndex: 10, overflow: 'hidden' },
-  shine: { position: 'absolute', top: '12%', left: '15%', width: '25%', height: '15%', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.8)', transform: 'rotate(-30deg)' },
-  modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 },
-  modalCard: { backgroundColor: '#fff', padding: '12px 12px 20px 12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: '85%', maxHeight: '85%' },
-  modalImg: { maxWidth: '100%', maxHeight: '70vh', borderRadius: '4px', objectFit: 'contain' },
-  closeBtn: { backgroundColor: '#333', color: '#fff', border: 'none', padding: '6px 20px', borderRadius: '15px', cursor: 'pointer', fontSize: '12px' }
+  stage: { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' },
+  bubbleWrapper: { position: 'absolute', bottom: '-150px', cursor: 'pointer' },
+  bubbleGlass: { width: '100%', height: '100%', borderRadius: '50%', position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.6)', boxShadow: '0 0 15px rgba(255,255,255,0.4), inset 0 0 15px rgba(255,255,255,0.4)' },
+  bubbleImg: { width: '100%', height: '100%', objectFit: 'cover' },
+  bubbleAuthorBadge: { position: 'absolute', bottom: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #fff', zIndex: 10 },
+  shine: { position: 'absolute', top: '15%', left: '15%', width: '25%', height: '25%', borderRadius: '50%', background: 'rgba(255,255,255,0.6)' },
+
+  emptyText: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.6)', textAlign: 'center', fontSize: '14px', lineHeight: '1.6', pointerEvents: 'none' },
+
+  modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  modalCard: { backgroundColor: '#1e293b', padding: '15px', borderRadius: '12px', maxWidth: '85vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', alignItems: 'center' },
+  modalImg: { maxWidth: '100%', maxHeight: '70vh', borderRadius: '8px', objectFit: 'contain' },
+  closeBtn: { marginTop: '12px', padding: '8px 20px', backgroundColor: '#6c757d', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' },
+
+  profileModalCard: { backgroundColor: '#1e293b', padding: '24px', borderRadius: '12px', width: '300px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' }
 };

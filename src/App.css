@@ -68,3 +68,115 @@ button:hover {
 button:active {
   transform: scale(0.98);
 }
+/* ==========================================
+   4. プロフィールカード
+   ========================================== */
+.profile-card {
+  background-color: #383838; /* カードの背景（暗めのグレー） */
+  width: 90%;
+  max-width: 380px;
+  border-radius: 20px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  color: #ffffff;
+  margin: 20px auto;
+}
+
+/* ヘッダーカバー領域 */
+.profile-cover {
+  height: 110px;
+  background: linear-gradient(135deg, #e67e22, #f39c12); /* スライダーのaccent-colorと同系のオレンジグラデーション */
+}
+
+/* プロフィールヘッダー情報 */
+.profile-header {
+  padding: 0 20px 15px;
+  position: relative;
+  border-bottom: 1px solid #444444;
+}
+
+/* アバター画像 */
+.profile-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 4px solid #383838;
+  margin-top: -38px;
+  object-fit: cover;
+  background-color: #555555;
+  /* 画像ぼやけ防止 */
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+}
+
+.profile-user-info {
+  margin-top: 8px;
+}
+
+.profile-name {
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #ffffff;
+  margin: 0;
+}
+
+.profile-handle {
+  font-size: 0.85rem;
+  color: #bbbbbb;
+  margin-top: 2px;
+}
+
+.profile-bio {
+  font-size: 0.88rem;
+  color: #dddddd;
+  margin-top: 10px;
+  line-height: 1.5;
+}
+
+/* カード本文領域 */
+.profile-body {
+  padding: 16px 20px 20px;
+}
+
+.profile-section-title {
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: #aaaaaa;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+
+/* タグ一覧 */
+.profile-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.profile-tag {
+  background-color: rgba(230, 126, 34, 0.15);
+  color: #e67e22;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid rgba(230, 126, 34, 0.3);
+}
+
+/* リンク一覧 */
+.profile-links a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e67e22;
+  text-decoration: none;
+  font-size: 0.88rem;
+  padding: 6px 0;
+  transition: opacity 0.2s ease;
+}
+
+.profile-links a:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
