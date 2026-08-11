@@ -13,7 +13,7 @@ html, body {
   min-height: 100%;
   min-height: 100dvh;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #162025;
+  background-color: #121216;
   overflow-x: hidden;
   overflow-y: auto !important;
   -webkit-text-size-adjust: 100%;
@@ -33,7 +33,7 @@ html, body {
 }
 
 /* ==========================================
-   2. 水滴・ガラス玉風のシャボン玉（シームレス＆端に向かって透明化）
+   2. 虹色の反射が美しいリアルなシャボン玉
    ========================================== */
 .bubble-container {
   position: fixed;
@@ -49,22 +49,23 @@ html, body {
 .bubble {
   position: absolute;
   border-radius: 50%;
+  /* 虹色の干渉色（ピンク、エメラルド、パープル、イエロー）が混ざり合うシャボン玉膜のグラデーション */
   background: 
-    radial-gradient(circle at 50% 25%, rgba(255, 180, 120, 0.8) 0%, rgba(255, 255, 255, 0.3) 20%, transparent 45%),
-    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.4) 15%, rgba(0, 0, 0, 0) 35%),
-    linear-gradient(180deg, rgba(100, 180, 210, 0.4) 0%, rgba(25, 60, 80, 0.85) 60%, rgba(10, 30, 40, 0.95) 100%);
-  border: 1.5px solid rgba(255, 255, 255, 0.65);
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.4) 15%, transparent 35%),
+    radial-gradient(circle at 70% 60%, rgba(255, 120, 200, 0.35) 0%, rgba(120, 220, 255, 0.3) 35%, rgba(255, 240, 120, 0.25) 70%, transparent 100%),
+    linear-gradient(135deg, rgba(255, 100, 180, 0.3) 0%, rgba(100, 220, 255, 0.3) 50%, rgba(180, 100, 255, 0.3) 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
   box-shadow: 
-    inset 0 0 12px rgba(255, 255, 255, 0.9),
-    inset 6px 6px 15px rgba(120, 220, 255, 0.5),
-    inset -8px -8px 20px rgba(0, 40, 60, 0.8),
-    0 8px 25px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(0.5px);
-  -webkit-backdrop-filter: blur(0.5px);
+    inset 0 0 14px rgba(255, 255, 255, 0.9),
+    inset 6px 6px 18px rgba(255, 150, 220, 0.5),
+    inset -6px -6px 18px rgba(100, 220, 255, 0.5),
+    0 8px 25px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(0.4px);
+  -webkit-backdrop-filter: blur(0.4px);
   animation: floatAndGradualFade linear infinite, swayBubble ease-in-out infinite;
 }
 
-/* 画面下部で現れ、中腹を通って、上端（端）に向かうにつれて徐々に透明になって消えるアニメーション */
+/* 下から上へ登り、上部に向かって自然に透明になって消える */
 @keyframes floatAndGradualFade {
   0% {
     transform: translateY(110vh) scale(0.6);
@@ -87,7 +88,7 @@ html, body {
     margin-left: 0px;
   }
   50% {
-    margin-left: 40px;
+    margin-left: 45px;
   }
 }
 
@@ -118,22 +119,22 @@ button:active {
    4. プロフィールカード
    ========================================== */
 .profile-card {
-  background-color: #24343d;
+  background-color: #1e1e24;
   width: 100%;
   max-width: 380px;
   border-radius: 20px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   color: #ffffff;
   margin: 15px auto;
   position: relative;
   z-index: 10;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .profile-cover {
   height: 110px;
-  background: linear-gradient(135deg, #1abc9c, #2980b9);
+  background: linear-gradient(135deg, #ff758c, #ff7eb3);
 }
 
 .profile-header {
@@ -146,10 +147,10 @@ button:active {
   width: 76px;
   height: 76px;
   border-radius: 50%;
-  border: 4px solid #24343d;
+  border: 4px solid #1e1e24;
   margin-top: -38px;
   object-fit: cover;
-  background-color: #34495e;
+  background-color: #2c2c35;
 }
 
 .profile-name {
@@ -161,12 +162,12 @@ button:active {
 
 .profile-handle {
   font-size: 0.85rem;
-  color: #95a5a6;
+  color: #b0b0c0;
 }
 
 .profile-bio {
   font-size: 0.88rem;
-  color: #ecf0f1;
+  color: #d0d0e0;
   margin-top: 10px;
   line-height: 1.5;
 }
@@ -183,11 +184,11 @@ button:active {
 }
 
 .profile-tag {
-  background-color: rgba(26, 188, 156, 0.15);
-  color: #1abc9c;
+  background-color: rgba(255, 117, 140, 0.15);
+  color: #ff758c;
   padding: 4px 10px;
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 500;
-  border: 1px solid rgba(26, 188, 156, 0.3);
+  border: 1px solid rgba(255, 117, 140, 0.3);
 }
