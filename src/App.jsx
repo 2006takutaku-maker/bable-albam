@@ -1312,10 +1312,10 @@ export default function App() {
         randomInt(10, 90),
 
       left:
-        random(8, 88),
+        random(10, 90),
 
       top:
-        random(10, 90),
+        52,
 
       rotation:
         random(-15, 15),
@@ -1334,7 +1334,7 @@ export default function App() {
             : random(15, 26),
 
       delay:
-        random(-15, 0),
+        random(0, 5),
 
       author:
         currentUser.username,
@@ -1380,17 +1380,22 @@ export default function App() {
         ),
 
       top:
-        clamp(
-          50 + random(-10, 10),
-          5,
-          95
-        ),
+        52,
 
       size:
         randomInt(140, 240),
 
       rotation:
         random(-10, 10),
+
+      duration:
+        speedMode === 'slow'
+          ? random(16, 22)
+          : speedMode === 'fast'
+            ? random(9, 13)
+            : random(12, 18),
+
+      delay: random(0, 4),
 
       fixed: false,
 
@@ -1461,10 +1466,10 @@ export default function App() {
               randomInt(75, 115),
 
             left:
-              random(5, 95),
+              random(10, 90),
 
             top:
-              random(5, 95),
+              52,
 
             rotation:
               random(-25, 25),
@@ -1483,7 +1488,7 @@ export default function App() {
                   : random(15, 25),
 
             delay:
-              random(-12, 0),
+              random(0, 5),
 
             opacity: 0.9,
 
@@ -3045,8 +3050,8 @@ export default function App() {
                       ? 'none'
                       : bubble.type ===
                         'text'
-                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
-                        : `freeFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
+                        ? `bubbleRise ${bubble.duration || 16}s cubic-bezier(.22,.7,.25,1) ${Math.max(0, bubble.delay || 0)}s infinite`
+                        : `bubbleRise ${bubble.duration || 16}s cubic-bezier(.22,.7,.25,1) ${Math.max(0, bubble.delay || 0)}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3390,97 +3395,42 @@ export default function App() {
             font-family: inherit;
           }
 
-          @keyframes freeFloat {
+          @keyframes bubbleRise {
             0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -1),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(var(--rot));
+              opacity: 0;
+              transform: translate3d(0, 115vh, 0) scale(0.72) rotate(-8deg);
             }
 
-            25% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.6),
-                  calc(var(--dy) * -0.8),
-                  0
-                )
-                rotate(calc(var(--rot) + 12deg));
+            12% {
+              opacity: 1;
+              transform: translate3d(calc(var(--dx) * -0.35), 55vh, 0) scale(0.92) rotate(var(--rot));
             }
 
-            50% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.8),
-                  calc(var(--dy) * 0.9),
-                  0
-                )
-                rotate(calc(var(--rot) - 10deg));
+            38% {
+              opacity: 1;
+              transform: translate3d(calc(var(--dx) * 0.5), 12vh, 0) scale(1) rotate(calc(var(--rot) + 5deg));
             }
 
-            75% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.9),
-                  calc(var(--dy) * 0.3),
-                  0
-                )
-                rotate(calc(var(--rot) + 20deg));
+            58% {
+              opacity: 1;
+              transform: translate3d(calc(var(--dx) * -0.45), -2vh, 0) scale(1.02) rotate(calc(var(--rot) - 5deg));
+            }
+
+            72% {
+              opacity: 0.95;
+              transform: translate3d(calc(var(--dx) * 0.25), -10vh, 0) scale(1) rotate(var(--rot));
             }
 
             100% {
-              transform:
-                translate3d(
-                  var(--dx),
-                  var(--dy),
-                  0
-                )
-                rotate(calc(var(--rot) - 8deg));
+              opacity: 0;
+              transform: translate3d(calc(var(--dx) * -0.7), -120vh, 0) scale(0.78) rotate(calc(var(--rot) + 10deg));
             }
           }
 
-          @keyframes textFloat {
-            0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -1),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(var(--rot));
-            }
-
-            45% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.7),
-                  calc(var(--dy) * 0.5),
-                  0
-                )
-                rotate(calc(var(--rot) + 12deg));
-            }
-
-            70% {
-              transform:
-                translate3d(
-                  0,
-                  0,
-                  0
-                )
-                rotate(0deg);
-            }
-
-            100% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.6),
-                  calc(var(--dy) * 0.8),
-                  0
-                )
-                rotate(calc(var(--rot) - 10deg));
+          @media (prefers-reduced-motion: reduce) {
+            .bubble-animation {
+              animation-duration: 1ms !important;
+              animation-iteration-count: 1 !important;
             }
           }
         `}
