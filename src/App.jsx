@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, 
@@ -39,8 +39,139 @@ const AVATARS = [
   { type: 'emoji', emoji: '🦁', bg: '#e17055' }
 ];
 
+// =========================================================
+// 2. 屈折シャボン玉 Canvas描画コンポーネント
+// =========================================================
+function BubbleCanvas({ src, size }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = src;
+
+    img.onload = () => {
+      const w = size;
+      const h = size;
+      canvas.width = w;
+      canvas.height = h;
+
+      const centerX = w / 2;
+      const centerY = h / 2;
+      const radius = Math.min(w, h) / 2 - 2;
+
+      // オフスクリーンキャンバスで元画像ピクセルを取得
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = img.width;
+      offCanvas.height = img.height;
+      const offCtx = offCanvas.getContext('2d');
+      offCtx.drawImage(img, 0, 0);
+      const srcImgData = offCtx.getImageData(0, 0, img.width, img.height);
+      const srcData = srcImgData.data;
+
+      const outImgData = ctx.createImageData(w, h);
+      const outData = outImgData.data;
+
+      // 1. ピクセル屈折・天地逆転（屈折レンズ計算）
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const dx = x - centerX;
+          const dy = y - centerY;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const outIdx = (y * w + x) * 4;
+
+          if (dist < radius) {
+            const r = dist / radius;
+            const factor = Math.sin((r * Math.PI) / 2);
+
+            // -dx, -dy で上下左右反転（レンズ屈折）
+            const nx = -dx * factor;
+            const ny = -dy * factor;
+
+            const srcX = Math.floor(((centerX + nx) / w) * img.width);
+            const srcY = Math.floor(((centerY + ny) / h) * img.height);
+
+            const clampedX = Math.max(0, Math.min(img.width - 1, srcX));
+            const clampedY = Math.max(0, Math.min(img.height - 1, srcY));
+            const srcIdx = (clampedY * img.width + clampedX) * 4;
+
+            outData[outIdx] = srcData[srcIdx];
+            outData[outIdx + 1] = srcData[srcIdx + 1];
+            outData[outIdx + 2] = srcData[srcIdx + 2];
+            outData[outIdx + 3] = 255;
+          } else {
+            outData[outIdx + 3] = 0;
+          }
+        }
+      }
+
+      ctx.putImageData(outImgData, 0, 0);
+
+      // 2. 虹色干渉リング
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.clip();
+
+      const rainbowGradient = ctx.createConicGradient(0, centerX, centerY);
+      rainbowGradient.addColorStop(0.0, 'rgba(255, 0, 0, 0.4)');
+      rainbowGradient.addColorStop(0.2, 'rgba(255, 255, 0, 0.4)');
+      rainbowGradient.addColorStop(0.4, 'rgba(0, 255, 0, 0.4)');
+      rainbowGradient.addColorStop(0.6, 'rgba(0, 255, 255, 0.4)');
+      rainbowGradient.addColorStop(0.8, 'rgba(255, 0, 255, 0.4)');
+      rainbowGradient.addColorStop(1.0, 'rgba(255, 0, 0, 0.4)');
+
+      ctx.strokeStyle = rainbowGradient;
+      ctx.lineWidth = size * 0.08;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.stroke();
+
+      // 3. ハイライト（ツヤ）
+      const highlight = ctx.createRadialGradient(
+        centerX - radius * 0.35,
+        centerY - radius * 0.35,
+        2,
+        centerX - radius * 0.35,
+        centerY - radius * 0.35,
+        radius * 0.45
+      );
+      highlight.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+      highlight.addColorStop(0.3, 'rgba(255, 255, 255, 0.3)');
+      highlight.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+      ctx.fillStyle = highlight;
+      ctx.beginPath();
+      ctx.arc(centerX - radius * 0.35, centerY - radius * 0.35, radius * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // インナーシャドウ（立体感）
+      const innerShadow = ctx.createRadialGradient(
+        centerX, centerY, radius * 0.6,
+        centerX, centerY, radius
+      );
+      innerShadow.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      innerShadow.addColorStop(1, 'rgba(0, 0, 0, 0.35)');
+
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.fillStyle = innerShadow;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    };
+  }, [src, size]);
+
+  return <canvas ref={canvasRef} style={{ pointerEvents: 'none', borderRadius: '50%' }} />;
+}
+
+// =========================================================
+// 3. メインアプリコンポーネント
+// =========================================================
 export default function App() {
-  // localStorage から自動ログイン状態を読み込む初期化
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem('currentUser');
     return savedUser ? JSON.parse(savedUser) : null;
@@ -53,7 +184,6 @@ export default function App() {
   const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(0);
   const [customAvatar, setCustomAvatar] = useState(null);
 
-  // 初期画面判定（ログイン済みの場合はメニュー画面からスタート）
   const [currentScreen, setCurrentScreen] = useState(() => {
     return localStorage.getItem('currentUser') ? 'menu' : 'auth';
   });
@@ -213,7 +343,6 @@ export default function App() {
     return AVATARS[selectedAvatarIdx] || AVATARS[0];
   };
 
-  // ログイン / アカウント作成（localStorage への保存を追加）
   const handleAuth = async (e) => {
     e.preventDefault();
     const username = usernameInput.trim();
@@ -273,7 +402,6 @@ export default function App() {
     }
   };
 
-  // ログアウト（localStorage からクリア）
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('currentUser');
@@ -336,7 +464,6 @@ export default function App() {
     const depth = Math.random();
     const size = Math.floor(depth * 120) + 80;
     const opacity = 0.5 + depth * 0.5;
-    const blur = 0; 
     const zIndex = Math.floor(depth * 100);
 
     const newBubbleData = {
@@ -344,7 +471,6 @@ export default function App() {
       genre: genre || '未分類',
       size,
       opacity,
-      blur,
       zIndex,
       depth,
       author: currentUser.username,
@@ -370,7 +496,6 @@ export default function App() {
             left: Math.floor(Math.random() * 85) + 5,
             size: Math.floor(depth * 120) + 80,
             opacity: 0.5 + depth * 0.5,
-            blur: 0,
             zIndex: Math.floor(depth * 100)
           };
         }
@@ -560,7 +685,7 @@ export default function App() {
                 placeholder="例: ROOM-1234"
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value)}
-                style={{ ...styles.input, marginBottom: '10px' }}
+                style={{ ...styles.input, marginBottom: '10px', width: '100%' }}
               />
               <button type="submit" style={{ ...styles.enterBtn, backgroundColor: '#17a2b8' }}>
                 ルームへ入る
@@ -824,7 +949,9 @@ export default function App() {
               }}
             >
               <div style={styles.bubbleGlass}>
-                <img src={b.src} alt="bubble-item" className="bubble-img" style={styles.bubbleImg} />
+                {/* 屈折描写を行うCanvasを追加 */}
+                <BubbleCanvas src={b.src} size={b.size} />
+
                 {b.authorAvatar && (
                   <div 
                     title={`${b.author} (${b.genre || '未分類'})`}
@@ -833,7 +960,6 @@ export default function App() {
                     {renderAvatarIcon(b.authorAvatar, { fontSize: '10px' })}
                   </div>
                 )}
-                <div style={styles.shine} />
               </div>
             </div>
           );
@@ -866,6 +992,9 @@ export default function App() {
   );
 }
 
+// =========================================================
+// 4. スタイル定義
+// =========================================================
 const styles = {
   authContainer: {
     width: '100vw',
@@ -918,73 +1047,56 @@ const styles = {
   container: { width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', fontFamily: 'sans-serif', transition: 'background 0.5s ease' },
   header: { position: 'absolute', top: '15px', left: '15px', zIndex: 150, display: 'flex', flexDirection: 'column', gap: '10px' },
   topControlRow: { display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' },
-  backMenuBtn: { backgroundColor: 'rgba(0, 0, 0, 0.5)', color: '#fff', padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px' },
-  badge: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', backdropFilter: 'blur(5px)' },
-  
-  membersBar: { display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 10px', borderRadius: '20px' },
-  memberTag: { display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '2px 8px 2px 4px', borderRadius: '12px' },
-  memberName: { color: '#fff', fontSize: '11px', fontWeight: 'bold' },
+  backMenuBtn: { padding: '6px 12px', backgroundColor: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: '15px', color: '#fff', fontSize: '12px', cursor: 'pointer', backdropFilter: 'blur(5px)' },
+  badge: { padding: '6px 12px', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: '15px', color: '#fff', fontSize: '12px', backdropFilter: 'blur(5px)' },
+  membersBar: { display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: 'rgba(0,0,0,0.3)', padding: '4px 8px', borderRadius: '15px' },
+  memberTag: { display: 'flex', alignItems: 'center', gap: '3px', backgroundColor: 'rgba(255,255,255,0.15)', padding: '2px 6px', borderRadius: '10px' },
+  memberName: { fontSize: '10px', color: '#fff' },
+  tocToggleBtn: { padding: '6px 12px', backgroundColor: '#6c757d', border: 'none', borderRadius: '15px', color: '#fff', fontSize: '12px', cursor: 'pointer' },
+  uploadBtn: { padding: '6px 12px', backgroundColor: '#28a745', borderRadius: '15px', color: '#fff', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' },
 
-  tocToggleBtn: { backgroundColor: 'rgba(0, 0, 0, 0.5)', color: '#fff', padding: '6px 14px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' },
-  uploadBtn: { backgroundColor: '#28a745', color: '#fff', padding: '6px 14px', borderRadius: '20px', border: 'none', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' },
+  genreTabBar: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' },
+  genreLabel: { color: '#fff', fontSize: '12px', marginRight: '4px' },
+  genreTabBtn: { padding: '4px 10px', border: 'none', borderRadius: '12px', fontSize: '11px', cursor: 'pointer' },
+  addGenreBtn: { padding: '4px 10px', backgroundColor: 'rgba(255,255,255,0.2)', border: '1px dashed #fff', borderRadius: '12px', color: '#fff', fontSize: '11px', cursor: 'pointer' },
 
-  genreTabBar: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', backgroundColor: 'rgba(0,0,0,0.3)', padding: '6px 12px', borderRadius: '20px', backdropFilter: 'blur(5px)' },
-  genreLabel: { color: '#aaa', fontSize: '11px', fontWeight: 'bold', marginRight: '4px' },
-  genreTabBtn: { border: 'none', padding: '4px 12px', borderRadius: '14px', cursor: 'pointer', fontSize: '12px', transition: 'all 0.2s ease' },
-  addGenreBtn: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px dashed rgba(255,255,255,0.5)', padding: '4px 10px', borderRadius: '14px', cursor: 'pointer', fontSize: '11px', fontWeight: 'bold' },
-
-  tocPanel: { position: 'absolute', top: 0, left: 0, width: '320px', height: '100vh', backgroundColor: 'rgba(20, 25, 35, 0.95)', backdropFilter: 'blur(10px)', zIndex: 200, transition: 'transform 0.3s ease-in-out', padding: '20px', boxSizing: 'border-box', color: '#fff' },
-  tocHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' },
-  tocTitle: { fontSize: '16px', margin: 0 },
-  closeTocBtn: { background: 'none', border: 'none', color: '#ccc', fontSize: '20px', cursor: 'pointer' },
-  
-  tocTabGroup: { display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.15)', marginBottom: '15px' },
-  tocTabBtn: { flex: 1, background: 'none', border: 'none', padding: '8px 0', cursor: 'pointer', fontSize: '12px' },
-
-  tocContent: { display: 'flex', flexDirection: 'column', height: 'calc(100% - 90px)', overflowY: 'auto' },
-  settingSection: { marginBottom: '20px', backgroundColor: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px' },
-  settingLabel: { fontSize: '12px', fontWeight: 'bold', color: '#ddd', marginBottom: '8px' },
-  presetGroup: { display: 'flex', gap: '8px', marginBottom: '10px' },
-  presetBtn: { flex: 1, height: '28px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.3)', cursor: 'pointer' },
-  colorPickerRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' },
-  subLabel: { fontSize: '11px', color: '#aaa' },
-  colorInput: { border: 'none', width: '28px', height: '28px', cursor: 'pointer', background: 'none' },
-  bgUploadBtn: { display: 'block', textAlign: 'center', backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff', padding: '6px 0', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', border: '1px dashed rgba(255,255,255,0.4)' },
-  speedGroup: { display: 'flex', gap: '6px' },
-  speedBtn: { flex: 1, padding: '5px 0', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' },
-  tocListContainer: { flex: 1 },
-  listHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' },
-  clearAllBtn: { backgroundColor: '#dc3545', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
-  emptyTocText: { fontSize: '12px', color: '#666', textAlign: 'center', marginTop: '20px' },
-  thumbGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' },
-  thumbCard: { position: 'relative', height: '90px', borderRadius: '6px', overflow: 'hidden', backgroundColor: '#000', cursor: 'pointer' },
-  thumbImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  thumbAuthorBox: { position: 'absolute', top: '4px', left: '4px', display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: 'rgba(0,0,0,0.6)', padding: '2px 6px', borderRadius: '10px' },
-  thumbAuthorText: { color: '#fff', fontSize: '10px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60px' },
-  deleteThumbBtn: { position: 'absolute', bottom: '4px', right: '4px', backgroundColor: 'rgba(220,53,69,0.8)', color: '#fff', border: 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
-  emptyText: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.7)', fontSize: '14px', textAlign: 'center', textShadow: '0 2px 4px rgba(0,0,0,0.8)', lineHeight: '1.6' },
   stage: { width: '100%', height: '100%', position: 'relative' },
-  bubbleWrapper: { position: 'absolute', bottom: 0, cursor: 'pointer', willChange: 'transform' },
-  bubbleGlass: {
-    width: '100%', height: '100%', borderRadius: '50%', position: 'relative', overflow: 'hidden',
-    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.35), rgba(255,255,255,0.05) 70%)',
-    boxShadow: 'inset 0 0 20px rgba(255,255,255,0.6), inset 10px 0 15px rgba(255,0,150,0.3), inset -10px 0 15px rgba(0,255,255,0.3), 0 0 15px rgba(255,255,255,0.4)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center'
-  },
-  bubbleImg: { 
-    width: '85%', 
-    height: '85%', 
-    objectFit: 'cover', 
-    borderRadius: '50%',
-    imageRendering: 'high-quality',
-    WebkitBackfaceVisibility: 'hidden',
-    backfaceVisibility: 'hidden',
-    transform: 'translateZ(0)'
-  },
-  bubbleAuthorBadge: { position: 'absolute', bottom: '10%', right: '10%', width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', border: '1px solid #fff', zIndex: 10, overflow: 'hidden' },
-  shine: { position: 'absolute', top: '12%', left: '15%', width: '25%', height: '15%', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.8)', transform: 'rotate(-30deg)' },
+  bubbleWrapper: { position: 'absolute', bottom: '-150px', cursor: 'pointer' },
+  bubbleGlass: { position: 'relative', width: '100%', height: '100%', borderRadius: '50%', filter: 'drop-shadow(0 8px 15px rgba(0,0,0,0.3))' },
+  bubbleAuthorBadge: { position: 'absolute', bottom: '2px', right: '2px', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 4px rgba(0,0,0,0.5)', zIndex: 10 },
+
+  emptyText: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.6)', textAlign: 'center', fontSize: '14px', pointerEvents: 'none', lineHeight: '1.6' },
+
+  tocPanel: { position: 'absolute', top: 0, left: 0, width: '320px', height: '100%', backgroundColor: 'rgba(20, 20, 20, 0.95)', backdropFilter: 'blur(10px)', zIndex: 200, transition: 'transform 0.3s ease', padding: '20px', boxSizing: 'border-box', color: '#fff', display: 'flex', flexDirection: 'column' },
+  tocHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' },
+  tocTitle: { fontSize: '16px', margin: 0 },
+  closeTocBtn: { background: 'none', border: 'none', color: '#fff', fontSize: '18px', cursor: 'pointer' },
+  tocTabGroup: { display: 'flex', borderBottom: '1px solid #333', marginBottom: '15px' },
+  tocTabBtn: { flex: 1, background: 'none', border: 'none', padding: '8px', cursor: 'pointer', fontSize: '12px' },
+  tocContent: { flex: 1, overflowY: 'auto' },
+  listHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' },
+  emptyTocText: { fontSize: '12px', color: '#888', textAlign: 'center', marginTop: '20px' },
+  thumbGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' },
+  thumbCard: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '6px', padding: '6px', display: 'flex', flexDirection: 'column', gap: '4px' },
+  thumbImg: { width: '100%', height: '80px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' },
+  thumbAuthorBox: { display: 'flex', alignItems: 'center', gap: '4px' },
+  thumbAuthorText: { fontSize: '10px', color: '#ccc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  deleteThumbBtn: { backgroundColor: '#dc3545', border: 'none', color: '#fff', fontSize: '10px', borderRadius: '3px', padding: '2px 4px', cursor: 'pointer' },
+  clearAllBtn: { backgroundColor: '#dc3545', border: 'none', color: '#fff', fontSize: '10px', borderRadius: '3px', padding: '4px 8px', cursor: 'pointer' },
+
+  settingSection: { marginBottom: '20px' },
+  settingLabel: { fontSize: '12px', fontWeight: 'bold', marginBottom: '8px', color: '#ddd' },
+  subLabel: { fontSize: '11px', color: '#aaa' },
+  presetGroup: { display: 'flex', gap: '8px', marginBottom: '10px' },
+  presetBtn: { width: '30px', height: '30px', borderRadius: '50%', border: '1px solid #fff', cursor: 'pointer' },
+  colorPickerRow: { display: 'flex', alignItems: 'center', gap: '10px' },
+  colorInput: { border: 'none', width: '30px', height: '30px', cursor: 'pointer', background: 'none' },
+  bgUploadBtn: { display: 'inline-block', padding: '6px 12px', backgroundColor: '#333', border: '1px solid #555', borderRadius: '4px', fontSize: '11px', cursor: 'pointer', color: '#fff' },
+  speedGroup: { display: 'flex', gap: '6px' },
+  speedBtn: { flex: 1, border: 'none', color: '#fff', padding: '6px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' },
+
   modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 300 },
-  modalCard: { backgroundColor: '#fff', padding: '12px 12px 20px 12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', maxWidth: '85%', maxHeight: '85%' },
-  modalImg: { maxWidth: '100%', maxHeight: '70vh', borderRadius: '4px', objectFit: 'contain' },
-  closeBtn: { backgroundColor: '#333', color: '#fff', border: 'none', padding: '6px 20px', borderRadius: '15px', cursor: 'pointer', fontSize: '12px' }
+  modalCard: { backgroundColor: '#111', padding: '15px', borderRadius: '8px', maxWidth: '80vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' },
+  modalImg: { maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain', borderRadius: '4px' },
+  closeBtn: { padding: '6px 16px', backgroundColor: '#6c757d', border: 'none', color: '#fff', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }
 };
