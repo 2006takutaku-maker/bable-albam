@@ -1,1213 +1,182 @@
-import React, { useState, useEffect } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc,
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  getDocs, 
-  writeBatch 
-} from 'firebase/firestore';
+import React, { useState, useMemo } from 'react';
+import './App.css';
 
-// =========================================================
-// 1. Firebaseの設定情報
-// =========================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyBvU40Kz7wRY7gCsIq7VNSFDVevSsDrBC4",
-  authDomain: "arubam-5e380.firebaseapp.com",
-  databaseURL: "https://arubam-5e380-default-rtdb.firebaseio.com",
-  projectId: "arubam-5e380",
-  storageBucket: "arubam-5e380.firebasestorage.app",
-  messagingSenderId: "527752001870",
-  appId: "1:527752001870:web:99bf524ebe898d9a82061f",
-  measurementId: "G-PHXB8KWDXB"
-};
-
-// Firebaseの初期化
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-
-// アバターアイコン用プリセット
-const AVATARS = [
-  { type: 'emoji', emoji: '🐱', bg: '#ff7675' },
-  { type: 'emoji', emoji: '🐶', bg: '#74b9ff' },
-  { type: 'emoji', emoji: '🐰', bg: '#fd79a8' },
-  { type: 'emoji', emoji: '🦊', bg: '#ffeaa7' },
-  { type: 'emoji', emoji: '🐼', bg: '#55efc4' },
-  { type: 'emoji', emoji: '🦁', bg: '#e17055' }
+const MOCK_USERS = [
+  { id: 'u1', username: 'ゲストユーザー', handle: '@guest', avatar: { bg: '#1abc9c' }, bio: '水滴・ガラス玉テーマのスペースです。' }
 ];
 
-// 画像圧縮ユーティリティ関数
-const compressImage = (dataUrl, maxWidth = 1000, quality = 0.7) => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.src = dataUrl;
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      let width = img.width;
-      let height = img.height;
-
-      if (width > maxWidth) {
-        height = Math.round((height * maxWidth) / width);
-        width = maxWidth;
-      }
-
-      canvas.width = width;
-      canvas.height = height;
-
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-  });
-};
-
 export default function App() {
-  // 認証関連の状態
-  const [currentUser, setCurrentUser] = useState(null);
-  const [authMode, setAuthMode] = useState('login');
-  const [usernameInput, setUsernameInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  
-  // アイコン選択用の状態（登録用）
-  const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(0);
-  const [customAvatar, setCustomAvatar] = useState(null);
-
-  // モーダル・プロフィール編集用の状態
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState(MOCK_USERS[0]);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
-
-  // アプリ状態
-  const [currentScreen, setCurrentScreen] = useState('auth'); // 'auth' | 'menu' | 'album'
-  const [activeTab, setActiveTab] = useState('private'); // 'private' | 'shared'
-  const [roomNumber, setRoomNumber] = useState('');
-  const [roomInput, setRoomInput] = useState('');
-
-  // ジャンル（カテゴリータブ）管理＆表示OFFフラグ
-  const [genres, setGenres] = useState(['すべて', '日常', '旅行', 'イベント']);
-  const [selectedGenre, setSelectedGenre] = useState('すべて');
-  const [showGenreBar, setShowGenreBar] = useState(true); // タブバーON/OFF
-
-  // メンバー一覧・アルバムデータ関連
-  const [roomMembers, setRoomMembers] = useState([]);
-  const [bubbles, setBubbles] = useState([]);
-  const [albumSettings, setAlbumSettings] = useState({
-    bgType: 'preset',
-    bgColor: '#0f2027',
-    bgImage: null,
-    presetBg: 'linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)'
-  });
-
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [isTocOpen, setIsTocOpen] = useState(false);
-  const [tocActiveTab, setTocActiveTab] = useState('photos'); // 'photos' | 'settings'
-  const [speedMode, setSpeedMode] = useState('normal');
-
-  // アルバムのキーを取得
-  const getAlbumKey = () => {
-    if (activeTab === 'private') {
-      return `private_${currentUser?.username}`;
-    }
-    return `shared_${roomNumber}`;
-  };
-
-  const albumKey = getAlbumKey();
-
-  // ---------------------------------------------------------
-  // 画面のスリープ防止（Wake Lock API）
-  // ---------------------------------------------------------
-  useEffect(() => {
-    let wakeLock = null;
-
-    const requestWakeLock = async () => {
-      try {
-        if ('wakeLock' in navigator) {
-          wakeLock = await navigator.wakeLock.request('screen');
-        }
-      } catch (err) {
-        console.log('Wake Lock エラー:', err);
-      }
-    };
-
-    if (currentScreen === 'album') {
-      requestWakeLock();
-    }
-
-    return () => {
-      if (wakeLock !== null) {
-        wakeLock.release();
-        wakeLock = null;
-      }
-    };
-  }, [currentScreen]);
-
-  // ---------------------------------------------------------
-  // リアルタイム同期
-  // ---------------------------------------------------------
-  useEffect(() => {
-    if (currentScreen !== 'album' || !albumKey) return;
-
-    // 1. 写真（Bubbles）のリアルタイム監視
-    const bubblesRef = collection(db, 'albums', albumKey, 'bubbles');
-    const unsubscribeBubbles = onSnapshot(bubblesRef, (snapshot) => {
-      const loadedBubbles = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setBubbles(loadedBubbles);
-    });
-
-    // 2. 背景・ジャンル設定のリアルタイム監視
-    const settingsRef = doc(db, 'albums', albumKey);
-    const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        setAlbumSettings(data);
-        if (data.genres && Array.isArray(data.genres)) {
-          setGenres(data.genres);
-        }
-      } else {
-        const defaultSettings = {
-          bgType: 'preset',
-          bgColor: '#0f2027',
-          bgImage: null,
-          presetBg: activeTab === 'private'
-            ? 'linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)'
-            : 'linear-gradient(180deg, #141e30 0%, #243b55 100%)',
-          genres: ['すべて', '日常', '旅行', 'イベント']
-        };
-        setAlbumSettings(defaultSettings);
-      }
-    });
-
-    // 3. 共有ルームメンバーのリアルタイム監視
-    let unsubscribeMembers = () => {};
-    if (activeTab === 'shared' && currentUser) {
-      const membersRef = collection(db, 'albums', albumKey, 'members');
-      unsubscribeMembers = onSnapshot(membersRef, (snapshot) => {
-        const loadedMembers = snapshot.docs.map(doc => doc.data());
-        setRoomMembers(loadedMembers);
-      });
-
-      const myMemberRef = doc(db, 'albums', albumKey, 'members', currentUser.username);
-      setDoc(myMemberRef, {
-        username: currentUser.username,
-        avatar: currentUser.avatar,
-        joinedAt: Date.now()
-      }, { merge: true });
-    }
-
-    return () => {
-      unsubscribeBubbles();
-      unsubscribeSettings();
-      unsubscribeMembers();
-    };
-  }, [currentScreen, albumKey, activeTab, currentUser]);
-
-  // ユーザー情報の最新化監視
-  useEffect(() => {
-    if (!currentUser?.username) return;
-    const userRef = doc(db, 'users', currentUser.username);
-    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setCurrentUser(docSnap.data());
-      }
-    });
-    return () => unsubscribeUser();
-  }, [currentUser?.username]);
-
-  // 設定の更新
-  const updateSettings = async (newSettings) => {
-    const updated = { ...albumSettings, ...newSettings };
-    setAlbumSettings(updated);
-    const settingsRef = doc(db, 'albums', albumKey);
-    await setDoc(settingsRef, updated, { merge: true });
-  };
-
-  // ジャンル追加処理
-  const handleAddGenre = () => {
-    const newGenre = prompt('新しいジャンル名を入力してください:');
-    if (newGenre && newGenre.trim()) {
-      const trimmed = newGenre.trim();
-      if (!genres.includes(trimmed)) {
-        const nextGenres = [...genres, trimmed];
-        setGenres(nextGenres);
-        setSelectedGenre(trimmed);
-        updateSettings({ genres: nextGenres });
-      } else {
-        alert('そのジャンルは既に存在します。');
-      }
-    }
-  };
-
-  // カスタムアイコン選択ハンドラー
-  const handleCustomAvatarUpload = (e, callback) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const compressed = await compressImage(event.target.result, 300, 0.8);
-      const newAvatar = { type: 'image', url: compressed };
-      if (callback) {
-        callback(newAvatar);
-      } else {
-        setCustomAvatar(newAvatar);
-        setSelectedAvatarIdx(-1);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const getSelectedAvatar = () => {
-    if (selectedAvatarIdx === -1 && customAvatar) {
-      return customAvatar;
-    }
-    return AVATARS[selectedAvatarIdx] || AVATARS[0];
-  };
-
-  // アカウント登録・ログイン
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    const username = usernameInput.trim();
-    const password = passwordInput.trim();
-
-    if (!username || !password) {
-      alert('ユーザー名とパスワードを入力してください');
-      return;
-    }
-
-    try {
-      const userRef = doc(db, 'users', username);
-      const userSnap = await getDoc(userRef);
-
-      if (authMode === 'register') {
-        if (userSnap.exists()) {
-          alert('このユーザー名は既に使われています。別の名前を指定するかログインしてください。');
-          return;
-        }
-
-        const newUser = {
-          username,
-          password,
-          avatar: getSelectedAvatar()
-        };
-
-        await setDoc(userRef, newUser);
-        setCurrentUser(newUser);
-        alert('アカウントを作成しました！');
-        setCurrentScreen('menu');
-      } else {
-        if (!userSnap.exists()) {
-          alert('ユーザーが存在しません。新規登録を行ってください。');
-          return;
-        }
-
-        const userData = userSnap.data();
-        if (userData.password !== password) {
-          alert('パスワードが違います。');
-          return;
-        }
-
-        setCurrentUser({
-          username: userData.username,
-          password: userData.password,
-          avatar: userData.avatar || AVATARS[0]
-        });
-        setCurrentScreen('menu');
-      }
-      setPasswordInput('');
-    } catch (err) {
-      console.error(err);
-      alert('認証処理中にエラーが発生しました。');
-    }
-  };
-
-  // プロフィール更新処理（Firebase＆Stateに即座に反映）
-  const handleUpdateProfile = async (updatedData) => {
-    try {
-      const userRef = doc(db, 'users', currentUser.username);
-      await setDoc(userRef, updatedData, { merge: true });
-      setCurrentUser((prev) => ({ ...prev, ...updatedData }));
-      
-      // 共有ルーム参加中の場合、メンバー情報も更新
-      if (activeTab === 'shared' && roomNumber) {
-        const myMemberRef = doc(db, 'albums', albumKey, 'members', currentUser.username);
-        await setDoc(myMemberRef, {
-          username: currentUser.username,
-          avatar: updatedData.avatar || currentUser.avatar,
-        }, { merge: true });
-      }
-
-      alert('プロフィールを更新しました！');
-      setIsProfileOpen(false);
-    } catch (err) {
-      console.error(err);
-      alert('プロフィールの更新に失敗しました。');
-    }
-  };
+  
+  // 空白時間を無くし、常に途切れなく湧き上がるように密に生成
+  const bubbles = useMemo(() => {
+    return Array.from({ length: 45 }).map((_, i) => ({
+      id: i,
+      size: Math.floor(Math.random() * 60) + 22, // 22px ～ 82px
+      left: Math.random() * 100, // 0% ～ 100%
+      duration: Math.random() * 6 + 5, // 5秒 ～ 11秒
+      delay: (i * 0.25) + (Math.random() * 1.5), // 連続して湧き出るディレイ
+      opacity: Math.random() * 0.35 + 0.55, // 0.55 ～ 0.9 の濃いめ透明度
+      swayDuration: Math.random() * 3 + 2,
+    }));
+  }, []);
 
   const handleLogout = () => {
-    setCurrentUser(null);
-    setCurrentScreen('auth');
-    setIsTocOpen(false);
-    setIsProfileOpen(false);
+    setIsLoggedIn(false);
   };
 
-  const enterPrivateAlbum = () => {
-    setActiveTab('private');
-    setSelectedGenre('すべて');
-    setCurrentScreen('album');
-  };
-
-  const enterSharedAlbum = (e) => {
-    e.preventDefault();
-    if (!roomInput.trim()) {
-      alert('ルーム番号を入力してください');
-      return;
-    }
-    setRoomNumber(roomInput.trim());
-    setActiveTab('shared');
-    setSelectedGenre('すべて');
-    setCurrentScreen('album');
-  };
-
-  // 写真追加処理
-  const handleImageUpload = (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-
-    const genreToAssign = (!showGenreBar || selectedGenre === 'すべて') ? (genres[1] || '未分類') : selectedGenre;
-
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        const compressed = await compressImage(event.target.result, 800, 0.75);
-        createBubble(compressed, genreToAssign);
-      };
-      reader.readAsDataURL(file);
-    });
-  };
-
-  // 背景画像アップロード
-  const handleBgImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const compressedBg = await compressImage(event.target.result, 1200, 0.7);
-      updateSettings({
-        bgImage: compressedBg,
-        bgType: 'image'
-      });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const getBaseDuration = () => {
-    return speedMode === 'slow' ? 45 : speedMode === 'fast' ? 15 : 30;
-  };
-
-  const createBubble = async (imgSrc, genre) => {
-    const depth = Math.random();
-    const size = Math.floor(depth * 120) + 80;
-    const opacity = 0.5 + depth * 0.5;
-    const blur = 0; 
-    const zIndex = Math.floor(depth * 100);
-
-    const newBubbleData = {
-      src: imgSrc,
-      genre: genre || '未分類',
-      size,
-      opacity,
-      blur,
-      zIndex,
-      depth,
-      author: currentUser.username,
-      authorAvatar: currentUser.avatar,
-      left: Math.floor(Math.random() * 85) + 5,
-      swayDuration: Math.floor(Math.random() * 3) + 2,
-      delay: Math.random() * 2,
-      createdAt: Date.now()
-    };
-
-    const bubblesRef = collection(db, 'albums', albumKey, 'bubbles');
-    await addDoc(bubblesRef, newBubbleData);
-  };
-
-  const handleAnimationEnd = (id) => {
-    setBubbles((prev) =>
-      prev.map((b) => {
-        if (b.id === id) {
-          const depth = Math.random();
-          return {
-            ...b,
-            depth,
-            left: Math.floor(Math.random() * 85) + 5,
-            size: Math.floor(depth * 120) + 80,
-            opacity: 0.5 + depth * 0.5,
-            blur: 0,
-            zIndex: Math.floor(depth * 100)
-          };
-        }
-        return b;
-      })
-    );
-  };
-
-  const handleDeleteBubble = async (id) => {
-    const bubbleRef = doc(db, 'albums', albumKey, 'bubbles', id);
-    await deleteDoc(bubbleRef);
-  };
-
-  const handleClearAll = async () => {
-    if (window.confirm('このアルバムの写真をすべて削除しますか？')) {
-      const bubblesRef = collection(db, 'albums', albumKey, 'bubbles');
-      const snapshot = await getDocs(bubblesRef);
-      const batch = writeBatch(db);
-      snapshot.docs.forEach((docSnap) => {
-        batch.delete(docSnap.ref);
-      });
-      await batch.commit();
-      setIsTocOpen(false);
-    }
-  };
-
-  const getContainerStyle = () => {
-    let backgroundStyle = {};
-    if (albumSettings.bgType === 'color') {
-      backgroundStyle = { backgroundColor: albumSettings.bgColor };
-    } else if (albumSettings.bgType === 'image' && albumSettings.bgImage) {
-      backgroundStyle = {
-        backgroundImage: `url(${albumSettings.bgImage})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
-      };
-    } else {
-      backgroundStyle = { background: albumSettings.presetBg };
-    }
-
-    return {
-      ...styles.container,
-      ...backgroundStyle
-    };
-  };
-
-  const renderAvatarIcon = (avatarObj, sizeStyle = {}) => {
-    if (!avatarObj) return null;
-    if (avatarObj.type === 'image') {
-      return (
-        <img
-          src={avatarObj.url}
-          alt="avatar"
-          style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', ...sizeStyle }}
-        />
-      );
-    }
-    return (
-      <span style={{ fontSize: sizeStyle.fontSize || '12px' }}>
-        {avatarObj.emoji}
-      </span>
-    );
-  };
-
-  const filteredBubbles = (!showGenreBar || selectedGenre === 'すべて')
-    ? bubbles
-    : bubbles.filter(b => b.genre === selectedGenre);
-
-  // 1. ログイン / アカウント作成 画面
-  if (currentScreen === 'auth') {
-    return (
-      <div style={styles.authContainer}>
-        <div style={styles.authCard}>
-          <h1 style={styles.appTitle}>🫧 Bubble Album</h1>
-          <div style={styles.authTabGroup}>
-            <button
-              style={{ ...styles.authTabBtn, borderBottom: authMode === 'login' ? '2px solid #007bff' : 'none', color: authMode === 'login' ? '#fff' : '#aaa' }}
-              onClick={() => setAuthMode('login')}
-            >
-              ログイン
-            </button>
-            <button
-              style={{ ...styles.authTabBtn, borderBottom: authMode === 'register' ? '2px solid #007bff' : 'none', color: authMode === 'register' ? '#fff' : '#aaa' }}
-              onClick={() => setAuthMode('register')}
-            >
-              新規登録
-            </button>
-          </div>
-
-          <form onSubmit={handleAuth} style={styles.form}>
-            {authMode === 'register' && (
-              <div style={styles.avatarPickerSection}>
-                <span style={{ color: '#ccc', fontSize: '12px' }}>アイコンを選択 / アップロード:</span>
-                <div style={styles.avatarGrid}>
-                  {AVATARS.map((av, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => { setSelectedAvatarIdx(idx); setCustomAvatar(null); }}
-                      style={{
-                        ...styles.avatarBadge,
-                        backgroundColor: av.bg,
-                        border: selectedAvatarIdx === idx ? '2px solid #fff' : '2px solid transparent'
-                      }}
-                    >
-                      {av.emoji}
-                    </div>
-                  ))}
-                  <label
-                    style={{
-                      ...styles.avatarBadge,
-                      backgroundColor: '#555',
-                      border: selectedAvatarIdx === -1 ? '2px solid #007bff' : '2px solid transparent',
-                      overflow: 'hidden'
-                    }}
-                    title="画像をアップロード"
-                  >
-                    {customAvatar ? (
-                      <img src={customAvatar.url} alt="custom" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      '📷'
-                    )}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => handleCustomAvatarUpload(e)}
-                      style={{ display: 'none' }}
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
-
-            <input
-              type="text"
-              placeholder="ユーザー名"
-              value={usernameInput}
-              onChange={(e) => setUsernameInput(e.target.value)}
-              style={styles.input}
-            />
-            <input
-              type="password"
-              placeholder="パスワード"
-              value={passwordInput}
-              onChange={(e) => setPasswordInput(e.target.value)}
-              style={styles.input}
-            />
-            <button type="submit" style={styles.submitBtn}>
-              {authMode === 'login' ? 'ログイン' : 'アカウント作成'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // 2. モード選択メニュー
-  if (currentScreen === 'menu') {
-    return (
-      <div style={styles.menuContainer}>
-        <div style={styles.menuHeader}>
-          <div 
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '20px' }}
-            onClick={() => setIsProfileOpen(true)}
-            title="プロフィール設定を開く"
-          >
-            <span style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser?.avatar?.bg || 'transparent' }}>
-              {renderAvatarIcon(currentUser?.avatar)}
-            </span>
-            <span><strong>{currentUser?.username}</strong> ⚙️</span>
-          </div>
-          <button style={styles.logoutBtn} onClick={handleLogout}>ログアウト</button>
-        </div>
-
-        <h2 style={{ color: '#fff', marginBottom: '30px' }}>📖 アルバムを選択</h2>
-
-        <div style={styles.menuGrid}>
-          <div style={styles.menuCard} onClick={enterPrivateAlbum}>
-            <div style={styles.cardIcon}>🔒</div>
-            <h3>プライベートアルバム</h3>
-            <p>自分だけの写真が入る専用のアルバムです。</p>
-            <button style={styles.enterBtn}>入場する</button>
-          </div>
-
-          <div style={styles.menuCard}>
-            <div style={styles.cardIcon}>🌐</div>
-            <h3>共有アルバム</h3>
-            <p>同じルーム番号を入力した人とリアルタイム共有できます。</p>
-            <form onSubmit={enterSharedAlbum} style={{ width: '100%' }}>
-              <input
-                type="text"
-                placeholder="例: ROOM-1234"
-                value={roomInput}
-                onChange={(e) => setRoomInput(e.target.value)}
-                style={{ ...styles.input, marginBottom: '10px' }}
-              />
-              <button type="submit" style={{ ...styles.enterBtn, backgroundColor: '#17a2b8' }}>
-                ルームへ入る
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* プロフィール編集モーダル */}
-        {isProfileOpen && (
-          <ProfileModal
-            user={currentUser}
-            onClose={() => setIsProfileOpen(false)}
-            onSave={handleUpdateProfile}
-            renderAvatarIcon={renderAvatarIcon}
-            handleCustomAvatarUpload={handleCustomAvatarUpload}
-          />
-        )}
-      </div>
-    );
-  }
-
-  // 3. シャボン玉アルバム画面
   return (
-    <div style={getContainerStyle()}>
-      {/* 上部ヘッダー */}
-      <div style={styles.header}>
-        <div style={styles.topControlRow}>
-          <button style={styles.backMenuBtn} onClick={() => setCurrentScreen('menu')}>
-            ◀ メニューに戻る
-          </button>
-
-          <div style={styles.badge}>
-            {activeTab === 'private' ? `🔒 プライベート` : `🌐 共有ルーム [${roomNumber}]`}
-          </div>
-
-          {activeTab === 'shared' && (
-            <div style={styles.membersBar}>
-              <span style={{ fontSize: '11px', color: '#ccc', marginRight: '4px' }}>参加中:</span>
-              {roomMembers.map((m, i) => (
-                <div key={i} style={styles.memberTag}>
-                  <div style={{ ...styles.avatarBadgeSmall, backgroundColor: m.avatar?.bg || 'transparent' }}>
-                    {renderAvatarIcon(m.avatar)}
-                  </div>
-                  <span style={styles.memberName}>{m.username}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button style={styles.tocToggleBtn} onClick={() => setIsTocOpen(!isTocOpen)}>
-            📖 もくじ・設定
-          </button>
-
-          {/* ジャンルタブのON/OFF切替ボタン */}
-          <button 
-            style={{
-              ...styles.toggleGenreBtn,
-              backgroundColor: showGenreBar ? 'rgba(40, 167, 69, 0.7)' : 'rgba(108, 117, 125, 0.7)'
-            }} 
-            onClick={() => setShowGenreBar(!showGenreBar)}
-            title="ジャンルタブの表示・非表示を切り替え"
-          >
-            🏷️ タブ {showGenreBar ? 'ON' : 'OFF'}
-          </button>
-
-          <label style={styles.uploadBtn}>
-            ＋ 写真を追加
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={handleImageUpload}
-              style={{ display: 'none' }}
-            />
-          </label>
-
-          {/* 右上ユーザープロフィールアイコンボタン */}
+    <div className="app-container">
+      {/* 途切れなく湧き上がり、上端に向かって自然に消えるガラス玉の背景 */}
+      <div className="bubble-container">
+        {bubbles.map(b => (
           <div
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.2)' }}
-            onClick={() => setIsProfileOpen(true)}
-            title="プロフィール設定"
-          >
-            <div style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser?.avatar?.bg || 'transparent' }}>
-              {renderAvatarIcon(currentUser?.avatar)}
-            </div>
-            <span style={{ color: '#fff', fontSize: '12px' }}>{currentUser?.username}</span>
-          </div>
-        </div>
-
-        {/* ジャンル切り替えタブバー (ul / li 構成、ON/OFF可能) */}
-        {showGenreBar && (
-          <ul style={styles.genreTabBar}>
-            <li style={{ color: '#aaa', fontSize: '12px', listStyle: 'none', marginRight: '4px' }}>🏷️ ジャンル:</li>
-            {genres.map((g) => (
-              <li key={g} style={{ listStyle: 'none' }}>
-                <button
-                  style={{
-                    ...styles.genreTabBtn,
-                    backgroundColor: selectedGenre === g ? '#007bff' : 'rgba(255,255,255,0.15)',
-                    color: '#fff',
-                    fontWeight: selectedGenre === g ? 'bold' : 'normal'
-                  }}
-                  onClick={() => setSelectedGenre(g)}
-                >
-                  {g}
-                </button>
-              </li>
-            ))}
-            <li style={{ listStyle: 'none' }}>
-              <button style={styles.addGenreBtn} onClick={handleAddGenre} title="ジャンルを追加">
-                ＋ タブ追加
-              </button>
-            </li>
-          </ul>
-        )}
+            key={b.id}
+            className="bubble"
+            style={{
+              width: `${b.size}px`,
+              height: `${b.size}px`,
+              left: `${b.left}%`,
+              '--bubble-opacity': b.opacity,
+              animationDuration: `${b.duration}s, ${b.swayDuration}s`,
+              animationDelay: `${b.delay}s, 0s`,
+            }}
+          />
+        ))}
       </div>
 
-      {/* もくじ・設定パネル */}
-      <div
-        style={{
-          ...styles.tocPanel,
-          transform: isTocOpen ? 'translateX(0)' : 'translateX(-100%)'
-        }}
-      >
-        <div style={styles.tocHeader}>
-          <h2 style={styles.tocTitle}>📖 目次メニュー</h2>
-          <button style={styles.closeTocBtn} onClick={() => setIsTocOpen(false)}>
-            ✕
-          </button>
-        </div>
-
-        <div style={styles.tocTabGroup}>
-          <button
-            style={{
-              ...styles.tocTabBtn,
-              borderBottom: tocActiveTab === 'photos' ? '2px solid #007bff' : 'none',
-              color: tocActiveTab === 'photos' ? '#fff' : '#888',
-              fontWeight: tocActiveTab === 'photos' ? 'bold' : 'normal'
+      {!isLoggedIn ? (
+        <div className="profile-card" style={{ marginTop: '100px', textAlign: 'center', padding: '30px', zIndex: 10 }}>
+          <h2>ようこそ</h2>
+          <p style={{ color: '#95a5a6', margin: '15px 0' }}>サービスを利用するにはログインしてください。</p>
+          <button 
+            className="logout-btn"
+            style={{ 
+              backgroundColor: '#1abc9c', 
+              color: '#fff', 
+              border: 'none', 
+              padding: '10px 24px', 
+              borderRadius: '20px', 
+              fontWeight: 'bold'
             }}
-            onClick={() => setTocActiveTab('photos')}
+            onClick={() => setIsLoggedIn(true)}
           >
-            📷 写真一覧 ({filteredBubbles.length})
-          </button>
-          <button
-            style={{
-              ...styles.tocTabBtn,
-              borderBottom: tocActiveTab === 'settings' ? '2px solid #007bff' : 'none',
-              color: tocActiveTab === 'settings' ? '#fff' : '#888',
-              fontWeight: tocActiveTab === 'settings' ? 'bold' : 'normal'
-            }}
-            onClick={() => setTocActiveTab('settings')}
-          >
-            🎨 背景・設定
+            ログイン / スタート
           </button>
         </div>
-
-        <div style={styles.tocContent}>
-          {tocActiveTab === 'photos' && (
-            <div style={styles.tocListContainer}>
-              <div style={styles.listHeader}>
-                <span style={styles.settingLabel}>📷 [{showGenreBar ? selectedGenre : 'すべて'}] の写真</span>
-                {bubbles.length > 0 && (
-                  <button style={styles.clearAllBtn} onClick={handleClearAll}>
-                    すべて削除
-                  </button>
-                )}
-              </div>
-
-              {filteredBubbles.length === 0 ? (
-                <p style={styles.emptyTocText}>写真がありません</p>
-              ) : (
-                <div style={styles.thumbGrid}>
-                  {filteredBubbles.map((b, idx) => (
-                    <div key={b.id} style={styles.thumbCard}>
-                      <img
-                        src={b.src}
-                        alt={`photo-${idx}`}
-                        style={styles.thumbImg}
-                        onClick={() => setSelectedImage(b.src)}
-                      />
-                      <div style={styles.thumbAuthorBox}>
-                        <div style={{ ...styles.avatarBadgeSmall, backgroundColor: b.authorAvatar?.bg || 'transparent' }}>
-                          {renderAvatarIcon(b.authorAvatar)}
-                        </div>
-                        <span style={styles.thumbAuthorText}>{b.author || '不明'}</span>
-                      </div>
-                      <button
-                        style={styles.deleteThumbBtn}
-                        onClick={() => handleDeleteBubble(b.id)}
-                      >
-                        削除
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {tocActiveTab === 'settings' && (
-            <div>
-              <div style={styles.settingSection}>
-                <div style={styles.settingLabel}>🎨 背景スタイルの変更</div>
-                <div style={styles.presetGroup}>
-                  <button
-                    style={{ ...styles.presetBtn, background: 'linear-gradient(180deg, #0f2027, #2c5364)' }}
-                    onClick={() => updateSettings({ presetBg: 'linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)', bgType: 'preset' })}
-                  />
-                  <button
-                    style={{ ...styles.presetBtn, background: 'linear-gradient(180deg, #1a2a6c, #b21f1f, #fdbb2d)' }}
-                    onClick={() => updateSettings({ presetBg: 'linear-gradient(180deg, #1a2a6c 0%, #b21f1f 50%, #fdbb2d 100%)', bgType: 'preset' })}
-                  />
-                  <button
-                    style={{ ...styles.presetBtn, background: 'linear-gradient(180deg, #130cb7, #52e5e7)' }}
-                    onClick={() => updateSettings({ presetBg: 'linear-gradient(180deg, #130cb7 0%, #52e5e7 100%)', bgType: 'preset' })}
-                  />
-                  <button
-                    style={{ ...styles.presetBtn, background: '#111' }}
-                    onClick={() => updateSettings({ bgColor: '#111111', bgType: 'color' })}
-                  />
-                </div>
-
-                <div style={styles.colorPickerRow}>
-                  <span style={styles.subLabel}>カラー単色指定:</span>
-                  <input
-                    type="color"
-                    value={albumSettings.bgColor || '#0f2027'}
-                    onChange={(e) => updateSettings({ bgColor: e.target.value, bgType: 'color' })}
-                    style={styles.colorInput}
-                  />
-                </div>
-
-                <div style={{ marginTop: '12px' }}>
-                  <label style={styles.bgUploadBtn}>
-                    🖼️ 背景画像をアップロード
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleBgImageUpload}
-                      style={{ display: 'none' }}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div style={styles.settingSection}>
-                <div style={styles.settingLabel}>🫧 浮遊スピードの設定</div>
-                <div style={styles.speedGroup}>
-                  <button
-                    style={{ ...styles.speedBtn, backgroundColor: speedMode === 'slow' ? '#007bff' : '#444' }}
-                    onClick={() => setSpeedMode('slow')}
-                  >
-                    ゆったり
-                  </button>
-                  <button
-                    style={{ ...styles.speedBtn, backgroundColor: speedMode === 'normal' ? '#007bff' : '#444' }}
-                    onClick={() => setSpeedMode('normal')}
-                  >
-                    標準
-                  </button>
-                  <button
-                    style={{ ...styles.speedBtn, backgroundColor: speedMode === 'fast' ? '#007bff' : '#444' }}
-                    onClick={() => setSpeedMode('fast')}
-                  >
-                    にぎやか
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 写真未登録時の案内 */}
-      {filteredBubbles.length === 0 && (
-        <div style={styles.emptyText}>
-          写真はありません<br />
-          「＋ 写真を追加」から画像を追加できます✨
-        </div>
-      )}
-
-      {/* シャボン玉浮遊領域 */}
-      <div style={styles.stage}>
-        {filteredBubbles.map((b) => {
-          const duration = Math.floor((1.2 - (b.depth || 0.5) * 0.4) * getBaseDuration());
-
-          return (
-            <div
-              key={b.id}
-              onClick={() => setSelectedImage(b.src)}
-              onAnimationEnd={() => handleAnimationEnd(b.id)}
-              style={{
-                ...styles.bubbleWrapper,
-                left: `${b.left}%`,
-                width: `${b.size}px`,
-                height: `${b.size}px`,
-                zIndex: b.zIndex,
-                opacity: b.opacity,
-                animation: `floatUp ${duration}s linear ${b.delay}s infinite, sway ${b.swayDuration}s ease-in-out infinite alternate`
+      ) : (
+        <>
+          {/* メニューヘッダー */}
+          <div className="menu-header" style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            width: '100%', 
+            maxWidth: '600px', 
+            marginBottom: '20px'
+          }}>
+            <div 
+              className="profile-btn"
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                cursor: 'pointer', 
+                backgroundColor: 'rgba(36, 52, 61, 0.9)', 
+                padding: '6px 14px', 
+                borderRadius: '20px',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: '#fff'
               }}
+              onClick={() => setIsProfileOpen(true)}
             >
-              <div style={styles.bubbleGlass}>
-                <img src={b.src} alt="bubble-item" style={styles.bubbleImg} />
-                {b.authorAvatar && (
-                  <div 
-                    title={`${b.author} (${b.genre || '未分類'})`}
-                    style={{ ...styles.bubbleAuthorBadge, backgroundColor: b.authorAvatar.bg || 'transparent' }}
-                  >
-                    {renderAvatarIcon(b.authorAvatar, { fontSize: '10px' })}
-                  </div>
-                )}
-                <div style={styles.shine} />
-              </div>
+              <span style={{ 
+                width: '24px', 
+                height: '24px', 
+                borderRadius: '50%', 
+                backgroundColor: currentUser.avatar.bg,
+                display: 'inline-block' 
+              }} />
+              <span><strong>{currentUser.username}</strong> ⚙️</span>
             </div>
-          );
-        })}
-      </div>
 
-      {/* モーダル表示 (拡大画像) */}
-      {selectedImage && (
-        <div style={styles.modalOverlay} onClick={() => setSelectedImage(null)}>
-          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-            <img src={selectedImage} alt="selected" style={styles.modalImg} />
-            <button style={styles.closeBtn} onClick={() => setSelectedImage(null)}>
-              閉じる
+            <button 
+              className="logout-btn"
+              style={{ 
+                backgroundColor: '#e74c3c', 
+                color: '#fff', 
+                border: 'none', 
+                padding: '8px 16px', 
+                borderRadius: '20px', 
+                fontWeight: 'bold'
+              }} 
+              onClick={handleLogout}
+            >
+              ログアウト
             </button>
           </div>
-        </div>
-      )}
 
-      {/* プロフィール編集モーダル */}
-      {isProfileOpen && (
-        <ProfileModal
-          user={currentUser}
-          onClose={() => setIsProfileOpen(false)}
-          onSave={handleUpdateProfile}
-          renderAvatarIcon={renderAvatarIcon}
-          handleCustomAvatarUpload={handleCustomAvatarUpload}
-        />
-      )}
-
-      <style>{`
-        @keyframes floatUp {
-          0% { transform: translateY(105vh); }
-          100% { transform: translateY(-250px); }
-        }
-        @keyframes sway {
-          0% { margin-left: -20px; }
-          100% { margin-left: 20px; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------
-// プロフィール画面 (モーダルコンポーネント)
-// ---------------------------------------------------------
-function ProfileModal({ user, onClose, onSave, renderAvatarIcon, handleCustomAvatarUpload }) {
-  const [avatar, setAvatar] = useState(user?.avatar || AVATARS[0]);
-  const [password, setPassword] = useState(user?.password || '');
-
-  const handleSelectPreset = (av) => {
-    setAvatar(av);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSave({
-      avatar,
-      password
-    });
-  };
-
-  return (
-    <div style={styles.modalOverlay} onClick={onClose}>
-      <div style={styles.profileModalCard} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-          <h2 style={{ color: '#fff', margin: 0, fontSize: '18px' }}>👤 プロフィール設定</h2>
-          <button style={styles.closeTocBtn} onClick={onClose}>✕</button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={{ textAlign: 'center', margin: '10px 0' }}>
-            <div style={{ width: '60px', height: '60px', borderRadius: '50%', margin: '0 auto 10px', backgroundColor: avatar.bg || '#444', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '2px solid #fff' }}>
-              {renderAvatarIcon(avatar, { fontSize: '28px' })}
+          {/* メインコンテンツ */}
+          <div className="main-content" style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: '600px' }}>
+            <div style={{ backgroundColor: '#24343d', padding: '24px', borderRadius: '16px', color: '#fff', textAlign: 'center', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <h3>メインダッシュボード</h3>
+              <p style={{ color: '#95a5a6', marginTop: '10px' }}>ガラス玉が途切れなく湧き上がり、上部に向かって自然に消えていくアニメーションが適用されています。</p>
             </div>
-            <span style={{ color: '#fff', fontWeight: 'bold' }}>{user?.username}</span>
           </div>
 
-          <div style={styles.avatarPickerSection}>
-            <span style={{ color: '#ccc', fontSize: '12px' }}>アイコンの変更:</span>
-            <div style={styles.avatarGrid}>
-              {AVATARS.map((av, idx) => (
-                <div
-                  key={idx}
-                  onClick={() => handleSelectPreset(av)}
-                  style={{
-                    ...styles.avatarBadge,
-                    backgroundColor: av.bg,
-                    border: avatar.emoji === av.emoji ? '2px solid #fff' : '2px solid transparent'
-                  }}
-                >
-                  {av.emoji}
+          {/* プロフィールモーダル */}
+          {isProfileOpen && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 2000,
+              padding: '20px'
+            }} onClick={() => setIsProfileOpen(false)}>
+              <div className="profile-card" onClick={(e) => e.stopPropagation()}>
+                <div className="profile-cover" />
+                <div className="profile-header">
+                  <div className="profile-avatar" style={{ backgroundColor: currentUser.avatar.bg }} />
+                  <h2 className="profile-name">{currentUser.username}</h2>
+                  <div className="profile-handle">{currentUser.handle}</div>
+                  <div className="profile-bio">{currentUser.bio}</div>
                 </div>
-              ))}
-              <label
-                style={{
-                  ...styles.avatarBadge,
-                  backgroundColor: '#555',
-                  border: avatar.type === 'image' ? '2px solid #007bff' : '2px solid transparent',
-                  overflow: 'hidden'
-                }}
-                title="画像をアップロード"
-              >
-                {avatar.type === 'image' ? (
-                  <img src={avatar.url} alt="custom" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  '📷'
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => handleCustomAvatarUpload(e, (newAv) => setAvatar(newAv))}
-                  style={{ display: 'none' }}
-                />
-              </label>
+                <div className="profile-body">
+                  <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#95a5a6', marginBottom: '8px' }}>タグ</div>
+                  <div className="profile-tags">
+                    <span className="profile-tag">シームレス</span>
+                    <span className="profile-tag">フェードアウト</span>
+                  </div>
+                  <button 
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      backgroundColor: '#34495e',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontWeight: 'bold',
+                      cursor: 'pointer',
+                      marginTop: '10px'
+                    }}
+                    onClick={() => setIsProfileOpen(false)}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-
-          <div style={{ textAlign: 'left' }}>
-            <span style={{ color: '#ccc', fontSize: '12px', display: 'block', marginBottom: '4px' }}>新しいパスワード:</span>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={styles.input}
-              placeholder="パスワード"
-            />
-          </div>
-
-          <button type="submit" style={styles.submitBtn}>
-            変更を保存
-          </button>
-        </form>
-      </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
-
-// ---------------------------------------------------------
-// スタイル定義
-// ---------------------------------------------------------
-const styles = {
-  authContainer: {
-    width: '100vw',
-    height: '100vh',
-    background: 'linear-gradient(135deg, #111e2e, #0a1118)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'sans-serif'
-  },
-  authCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    backdropFilter: 'blur(10px)',
-    padding: '30px',
-    borderRadius: '12px',
-    width: '320px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    textAlign: 'center'
-  },
-  appTitle: { color: '#fff', fontSize: '22px', marginBottom: '20px' },
-  authTabGroup: { display: 'flex', justifyContent: 'space-around', marginBottom: '20px' },
-  authTabBtn: { background: 'none', border: 'none', padding: '8px 16px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold' },
-  form: { display: 'flex', flexDirection: 'column', gap: '12px' },
-  avatarPickerSection: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' },
-  avatarGrid: { display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' },
-  avatarBadge: { width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '18px' },
-  avatarBadgeSmall: { width: '22px', height: '22px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  input: { width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.2)', backgroundColor: 'rgba(0,0,0,0.2)', color: '#fff', fontSize: '13px', outline: 'none' },
-  submitBtn: { padding: '10px', backgroundColor: '#007bff', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', marginTop: '10px' },
-
-  menuContainer: {
-    width: '100vw',
-    height: '100vh',
-    background: 'linear-gradient(135deg, #0f2027, #2c5364)',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: 'sans-serif',
-    position: 'relative'
-  },
-  menuHeader: { position: 'absolute', top: '20px', right: '20px', color: '#fff', fontSize: '13px', display: 'flex', gap: '15px', alignItems: 'center' },
-  logoutBtn: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' },
-  menuGrid: { display: 'flex', gap: '20px', flexWrap: 'wrap', justifyContent: 'center' },
-  menuCard: { backgroundColor: 'rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)', width: '240px', padding: '24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' },
-  cardIcon: { fontSize: '40px', marginBottom: '10px' },
-  enterBtn: { padding: '8px 20px', backgroundColor: '#28a745', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', fontWeight: 'bold', fontSize: '13px', marginTop: '10px', width: '100%' },
-
-  container: { width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative', fontFamily: 'sans-serif', transition: 'background 0.5s ease' },
-  header: { position: 'absolute', top: '15px', left: '15px', zIndex: 150, display: 'flex', flexDirection: 'column', gap: '10px' },
-  topControlRow: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' },
-  backMenuBtn: { padding: '6px 12px', backgroundColor: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', borderRadius: '20px', cursor: 'pointer', fontSize: '12px' },
-  badge: { backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', padding: '6px 12px', borderRadius: '20px', fontSize: '12px', backdropFilter: 'blur(5px)' },
-  membersBar: { display: 'flex', alignItems: 'center', gap: '5px', backgroundColor: 'rgba(0,0,0,0.4)', padding: '4px 10px', borderRadius: '20px' },
-  memberTag: { display: 'flex', alignItems: 'center', gap: '4px' },
-  memberName: { color: '#fff', fontSize: '11px' },
-  tocToggleBtn: { padding: '6px 12px', backgroundColor: 'rgba(255,255,255,0.25)', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', backdropFilter: 'blur(5px)' },
-  toggleGenreBtn: { padding: '6px 12px', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', backdropFilter: 'blur(5px)' },
-  uploadBtn: { padding: '6px 14px', backgroundColor: '#007bff', color: '#fff', borderRadius: '20px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', display: 'inline-block' },
-
-  genreTabBar: { display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'rgba(0,0,0,0.4)', padding: '6px 12px', borderRadius: '20px', backdropFilter: 'blur(5px)', maxWidth: '85vw', overflowX: 'auto', margin: 0 },
-  genreTabBtn: { border: 'none', padding: '4px 10px', borderRadius: '12px', cursor: 'pointer', fontSize: '11px', transition: 'all 0.2s' },
-  addGenreBtn: { backgroundColor: 'transparent', color: '#00d2d3', border: '1px dashed #00d2d3', padding: '3px 8px', borderRadius: '12px', cursor: 'pointer', fontSize: '11px' },
-
-  tocPanel: { position: 'absolute', top: 0, left: 0, width: '320px', height: '100%', backgroundColor: 'rgba(15, 23, 42, 0.92)', backdropFilter: 'blur(15px)', zIndex: 200, transition: 'transform 0.3s ease-in-out', boxShadow: '4px 0 20px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column' },
-  tocHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.1)' },
-  tocTitle: { color: '#fff', fontSize: '16px', margin: 0 },
-  closeTocBtn: { background: 'none', border: 'none', color: '#aaa', fontSize: '18px', cursor: 'pointer' },
-  tocTabGroup: { display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.1)' },
-  tocTabBtn: { flex: 1, background: 'none', border: 'none', padding: '12px', cursor: 'pointer', fontSize: '13px' },
-  tocContent: { flex: 1, overflowY: 'auto', padding: '15px' },
-  tocListContainer: { display: 'flex', flexDirection: 'column', gap: '10px' },
-  listHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  settingLabel: { color: '#fff', fontSize: '13px', fontWeight: 'bold' },
-  clearAllBtn: { backgroundColor: '#dc3545', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', fontSize: '10px', cursor: 'pointer' },
-  emptyTocText: { color: '#888', fontSize: '12px', textAlign: 'center', marginTop: '20px' },
-  thumbGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginTop: '10px' },
-  thumbCard: { position: 'relative', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '8px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' },
-  thumbImg: { width: '100%', height: '90px', objectFit: 'cover', cursor: 'pointer', display: 'block' },
-  thumbAuthorBox: { display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 6px', backgroundColor: 'rgba(0,0,0,0.6)' },
-  thumbAuthorText: { color: '#ccc', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  deleteThumbBtn: { width: '100%', backgroundColor: 'rgba(220, 53, 69, 0.8)', color: '#fff', border: 'none', padding: '4px', fontSize: '10px', cursor: 'pointer' },
-
-  settingSection: { marginBottom: '20px' },
-  presetGroup: { display: 'flex', gap: '8px', marginTop: '10px' },
-  presetBtn: { width: '32px', height: '32px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.5)', cursor: 'pointer' },
-  colorPickerRow: { display: 'flex', alignItems: 'center', gap: '10px', marginTop: '12px' },
-  subLabel: { color: '#aaa', fontSize: '12px' },
-  colorInput: { border: 'none', width: '30px', height: '30px', borderRadius: '4px', cursor: 'pointer', backgroundColor: 'transparent' },
-  bgUploadBtn: { display: 'block', backgroundColor: 'rgba(255,255,255,0.15)', color: '#fff', padding: '8px 12px', borderRadius: '6px', fontSize: '12px', textAlign: 'center', cursor: 'pointer', border: '1px dashed rgba(255,255,255,0.3)' },
-  speedGroup: { display: 'flex', gap: '6px', marginTop: '10px' },
-  speedBtn: { flex: 1, color: '#fff', border: 'none', padding: '6px', borderRadius: '4px', fontSize: '11px', cursor: 'pointer' },
-
-  stage: { width: '100%', height: '100%', position: 'relative', overflow: 'hidden' },
-  bubbleWrapper: { position: 'absolute', bottom: '-150px', cursor: 'pointer' },
-  bubbleGlass: { width: '100%', height: '100%', borderRadius: '50%', position: 'relative', overflow: 'hidden', border: '2px solid rgba(255,255,255,0.6)', boxShadow: '0 0 15px rgba(255,255,255,0.4), inset 0 0 15px rgba(255,255,255,0.4)' },
-  bubbleImg: { width: '100%', height: '100%', objectFit: 'cover' },
-  bubbleAuthorBadge: { position: 'absolute', bottom: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #fff', zIndex: 10 },
-  shine: { position: 'absolute', top: '15%', left: '15%', width: '25%', height: '25%', borderRadius: '50%', background: 'rgba(255,255,255,0.6)' },
-
-  emptyText: { position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: 'rgba(255,255,255,0.6)', textAlign: 'center', fontSize: '14px', lineHeight: '1.6', pointerEvents: 'none' },
-
-  modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  modalCard: { backgroundColor: '#1e293b', padding: '15px', borderRadius: '12px', maxWidth: '85vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', alignItems: 'center' },
-  modalImg: { maxWidth: '100%', maxHeight: '70vh', borderRadius: '8px', objectFit: 'contain' },
-  closeBtn: { marginTop: '12px', padding: '8px 20px', backgroundColor: '#6c757d', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' },
-
-  profileModalCard: { backgroundColor: '#1e293b', padding: '24px', borderRadius: '12px', width: '300px', boxShadow: '0 10px 25px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' }
-};

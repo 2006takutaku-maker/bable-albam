@@ -11,58 +11,93 @@
 html, body {
   width: 100%;
   min-height: 100%;
-  min-height: 100dvh; /* スマホのアドレスバー対策 */
+  min-height: 100dvh;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #2b2b2b; /* アプリ全体の背景色 */
+  background-color: #162025;
   overflow-x: hidden;
-  overflow-y: auto !important; /* 縦スクロールを許可 */
-  -webkit-text-size-adjust: 100%; /* スマホでの勝手な文字拡大を防止 */
+  overflow-y: auto !important;
+  -webkit-text-size-adjust: 100%;
 }
 
-/* ★修正箇所：見切れの原因だった align-items: center を修正 */
 #root {
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start; /* 上詰めで配置 */
+  justify-content: flex-start;
   align-items: center;
-  padding: 20px 10px 60px; /* 下部にしっかり余白(60px)を作ってログアウトボタンが見えるようにする */
+  padding: 20px 10px 60px;
+  position: relative;
+  z-index: 1;
 }
 
 /* ==========================================
-   2. 写真のぼやけ防止・位置調整
+   2. 水滴・ガラス玉風のシャボン玉（シームレス＆端に向かって透明化）
    ========================================== */
-
-/* 写真（imgタグ）のぼやけ防止と高画質化 */
-img, .photo-img, .bubble-img {
+.bubble-container {
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover; /* 枠いっぱいに綺麗に収める */
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-  backface-visibility: hidden;
-  transform: translateZ(0);
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
 }
 
-/* 写真やメインコンテンツのエリア */
-.photo-container, .bubble-container, .main-content {
-  width: 100%;
-  max-width: 600px;
-  margin: 0 auto 15px;
+.bubble {
+  position: absolute;
+  border-radius: 50%;
+  background: 
+    radial-gradient(circle at 50% 25%, rgba(255, 180, 120, 0.8) 0%, rgba(255, 255, 255, 0.3) 20%, transparent 45%),
+    radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.4) 15%, rgba(0, 0, 0, 0) 35%),
+    linear-gradient(180deg, rgba(100, 180, 210, 0.4) 0%, rgba(25, 60, 80, 0.85) 60%, rgba(10, 30, 40, 0.95) 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 
+    inset 0 0 12px rgba(255, 255, 255, 0.9),
+    inset 6px 6px 15px rgba(120, 220, 255, 0.5),
+    inset -8px -8px 20px rgba(0, 40, 60, 0.8),
+    0 8px 25px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(0.5px);
+  -webkit-backdrop-filter: blur(0.5px);
+  animation: floatAndGradualFade linear infinite, swayBubble ease-in-out infinite;
+}
+
+/* 画面下部で現れ、中腹を通って、上端（端）に向かうにつれて徐々に透明になって消えるアニメーション */
+@keyframes floatAndGradualFade {
+  0% {
+    transform: translateY(110vh) scale(0.6);
+    opacity: 0;
+  }
+  15% {
+    opacity: var(--bubble-opacity, 0.85);
+  }
+  65% {
+    opacity: var(--bubble-opacity, 0.85);
+  }
+  100% {
+    transform: translateY(-15vh) scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes swayBubble {
+  0%, 100% {
+    margin-left: 0px;
+  }
+  50% {
+    margin-left: 40px;
+  }
 }
 
 /* ==========================================
-   3. 共通パーツ（ボタン・スライダーなど）
+   3. ボタン・UIパーツ
    ========================================== */
-input[type="range"] {
-  accent-color: #e67e22;
-  cursor: pointer;
-}
-
 button {
   transition: opacity 0.2s ease, transform 0.1s ease;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 button:hover {
@@ -73,106 +108,73 @@ button:active {
   transform: scale(0.98);
 }
 
-/* タブON/OFFボタン */
-.btn-tag-toggle {
-  border: none;
-  border-radius: 20px;
-  padding: 6px 16px;
-  font-weight: bold;
-  color: #ffffff;
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-}
-
-/* ON状態のとき（緑色） */
-.btn-tag-toggle.on {
-  background-color: #27ae60;
-}
-
-/* OFF状態のとき（グレー系） */
-.btn-tag-toggle.off {
-  background-color: #555555;
-  color: #aaaaaa;
+.menu-header, .profile-btn, .logout-btn {
+  position: relative;
+  z-index: 1000 !important;
+  pointer-events: auto !important;
 }
 
 /* ==========================================
    4. プロフィールカード
    ========================================== */
 .profile-card {
-  background-color: #383838; /* カードの背景（暗めのグレー） */
+  background-color: #24343d;
   width: 100%;
   max-width: 380px;
   border-radius: 20px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
   overflow: hidden;
   color: #ffffff;
   margin: 15px auto;
+  position: relative;
+  z-index: 10;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* ヘッダーカバー領域 */
 .profile-cover {
   height: 110px;
-  background: linear-gradient(135deg, #e67e22, #f39c12);
+  background: linear-gradient(135deg, #1abc9c, #2980b9);
 }
 
-/* プロフィールヘッダー情報 */
 .profile-header {
   padding: 0 20px 15px;
   position: relative;
-  border-bottom: 1px solid #444444;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* アバター画像 */
 .profile-avatar {
   width: 76px;
   height: 76px;
   border-radius: 50%;
-  border: 4px solid #383838;
+  border: 4px solid #24343d;
   margin-top: -38px;
   object-fit: cover;
-  background-color: #555555;
-  image-rendering: -webkit-optimize-contrast;
-  image-rendering: crisp-edges;
-}
-
-.profile-user-info {
-  margin-top: 8px;
+  background-color: #34495e;
 }
 
 .profile-name {
   font-size: 1.2rem;
   font-weight: bold;
   color: #ffffff;
-  margin: 0;
+  margin: 8px 0 2px;
 }
 
 .profile-handle {
   font-size: 0.85rem;
-  color: #bbbbbb;
-  margin-top: 2px;
+  color: #95a5a6;
 }
 
 .profile-bio {
   font-size: 0.88rem;
-  color: #dddddd;
+  color: #ecf0f1;
   margin-top: 10px;
   line-height: 1.5;
 }
 
-/* カード本文領域 */
 .profile-body {
   padding: 16px 20px 20px;
 }
 
-.profile-section-title {
-  font-size: 0.75rem;
-  font-weight: bold;
-  color: #aaaaaa;
-  letter-spacing: 0.8px;
-  margin-bottom: 8px;
-}
-
-/* タグ一覧 */
 .profile-tags {
   display: flex;
   flex-wrap: wrap;
@@ -181,72 +183,11 @@ button:active {
 }
 
 .profile-tag {
-  background-color: rgba(230, 126, 34, 0.15);
-  color: #e67e22;
+  background-color: rgba(26, 188, 156, 0.15);
+  color: #1abc9c;
   padding: 4px 10px;
   border-radius: 12px;
   font-size: 0.8rem;
   font-weight: 500;
-  border: 1px solid rgba(230, 126, 34, 0.3);
-}
-
-/* リンク一覧 */
-.profile-links a {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #e67e22;
-  text-decoration: none;
-  font-size: 0.88rem;
-  padding: 6px 0;
-  transition: opacity 0.2s ease;
-}
-
-.profile-links a:hover {
-  opacity: 0.8;
-  text-decoration: underline;
-}
-
-/* ==========================================
-   5. スマホ（画面幅768px以下）最適化調整
-   ========================================== */
-@media (max-width: 768px) {
-  /* 上部ボタン・ナビゲーションエリア */
-  .nav-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    width: 100%;
-    justify-content: center;
-    margin-bottom: 15px;
-  }
-
-  /* 下部ジャンルタブを横スクロール可能に */
-  .genre-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 10px 5px;
-    overflow-x: auto;
-    white-space: nowrap;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .genre-bar::-webkit-scrollbar {
-    display: none;
-  }
-}
-* プロフィールボタンとログアウトボタンの重なり対策 */
-.logout-btn, .profile-btn, .btn-logout {
-  position: relative; /* 重なり順を制御するための基準 */
-  z-index: 10;        /* 数値を大きくして一番手前に表示 */
-  cursor: pointer;    /* クリック可能であることを明示 */
-  pointer-events: auto; /* クリックイベントを有効化 */
-}
-
-/* もし全体を覆っているコンテナがあれば、それが邪魔をしていないか確認 */
-.main-content, .app-container {
-  position: relative;
-  z-index: 1;
+  border: 1px solid rgba(26, 188, 156, 0.3);
 }
