@@ -27,11 +27,9 @@ const firebaseConfig = {
   measurementId: "G-PHXB8KWDXB"
 };
 
-// Firebaseの初期化
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// アバターアイコン用プリセット
 const AVATARS = [
   { type: 'emoji', emoji: '🐱', bg: '#ff7675' },
   { type: 'emoji', emoji: '🐶', bg: '#74b9ff' },
@@ -42,27 +40,31 @@ const AVATARS = [
 ];
 
 export default function App() {
-  // 認証関連の状態
-  const [currentUser, setCurrentUser] = useState(null);
+  // localStorage から自動ログイン状態を読み込む初期化
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = localStorage.getItem('currentUser');
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
   const [authMode, setAuthMode] = useState('login');
   const [usernameInput, setUsernameInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   
-  // アイコン選択用の状態
   const [selectedAvatarIdx, setSelectedAvatarIdx] = useState(0);
   const [customAvatar, setCustomAvatar] = useState(null);
 
-  // アプリ状態
-  const [currentScreen, setCurrentScreen] = useState('auth'); // 'auth' | 'menu' | 'album'
-  const [activeTab, setActiveTab] = useState('private'); // 'private' | 'shared'
+  // 初期画面判定（ログイン済みの場合はメニュー画面からスタート）
+  const [currentScreen, setCurrentScreen] = useState(() => {
+    return localStorage.getItem('currentUser') ? 'menu' : 'auth';
+  });
+
+  const [activeTab, setActiveTab] = useState('private');
   const [roomNumber, setRoomNumber] = useState('');
   const [roomInput, setRoomInput] = useState('');
 
-  // ジャンル（カテゴリータブ）管理
   const [genres, setGenres] = useState(['すべて', '日常', '旅行', 'イベント']);
   const [selectedGenre, setSelectedGenre] = useState('すべて');
 
-  // メンバー一覧・アルバムデータ関連
   const [roomMembers, setRoomMembers] = useState([]);
   const [bubbles, setBubbles] = useState([]);
   const [albumSettings, setAlbumSettings] = useState({
@@ -74,10 +76,9 @@ export default function App() {
 
   const [selectedImage, setSelectedImage] = useState(null);
   const [isTocOpen, setIsTocOpen] = useState(false);
-  const [tocActiveTab, setTocActiveTab] = useState('photos'); // 'photos' | 'settings'
+  const [tocActiveTab, setTocActiveTab] = useState('photos');
   const [speedMode, setSpeedMode] = useState('normal');
 
-  // アルバムのキーを取得
   const getAlbumKey = () => {
     if (activeTab === 'private') {
       return `private_${currentUser?.username}`;
@@ -87,9 +88,7 @@ export default function App() {
 
   const albumKey = getAlbumKey();
 
-  // ---------------------------------------------------------
-  // 画面のスリープ防止（Wake Lock API）
-  // ---------------------------------------------------------
+  // Screen Wake Lock API
   useEffect(() => {
     let wakeLock = null;
 
@@ -115,13 +114,10 @@ export default function App() {
     };
   }, [currentScreen]);
 
-  // ---------------------------------------------------------
-  // リアルタイム同期
-  // ---------------------------------------------------------
+  // Firestore リアルタイム同期
   useEffect(() => {
     if (currentScreen !== 'album' || !albumKey) return;
 
-    // 1. 写真（Bubbles）のリアルタイム監視
     const bubblesRef = collection(db, 'albums', albumKey, 'bubbles');
     const unsubscribeBubbles = onSnapshot(bubblesRef, (snapshot) => {
       const loadedBubbles = snapshot.docs.map(doc => ({
@@ -131,7 +127,6 @@ export default function App() {
       setBubbles(loadedBubbles);
     });
 
-    // 2. 背景・ジャンル設定のリアルタイム監視
     const settingsRef = doc(db, 'albums', albumKey);
     const unsubscribeSettings = onSnapshot(settingsRef, (docSnap) => {
       if (docSnap.exists()) {
@@ -154,7 +149,6 @@ export default function App() {
       }
     });
 
-    // 3. 共有ルームメンバーのリアルタイム監視
     let unsubscribeMembers = () => {};
     if (activeTab === 'shared') {
       const membersRef = collection(db, 'albums', albumKey, 'members');
@@ -178,7 +172,6 @@ export default function App() {
     };
   }, [currentScreen, albumKey, activeTab, currentUser]);
 
-  // 設定の更新
   const updateSettings = async (newSettings) => {
     const updated = { ...albumSettings, ...newSettings };
     setAlbumSettings(updated);
@@ -186,7 +179,6 @@ export default function App() {
     await setDoc(settingsRef, updated, { merge: true });
   };
 
-  // ジャンル追加処理
   const handleAddGenre = () => {
     const newGenre = prompt('新しいジャンル名を入力してください:');
     if (newGenre && newGenre.trim()) {
@@ -202,7 +194,6 @@ export default function App() {
     }
   };
 
-  // カスタムアイコン選択ハンドラー
   const handleCustomAvatarUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -222,7 +213,7 @@ export default function App() {
     return AVATARS[selectedAvatarIdx] || AVATARS[0];
   };
 
-  // アカウント登録・ログイン
+  // ログイン / アカウント作成（localStorage への保存を追加）
   const handleAuth = async (e) => {
     e.preventDefault();
     const username = usernameInput.trim();
@@ -250,7 +241,9 @@ export default function App() {
         };
 
         await setDoc(userRef, newUser);
-        setCurrentUser({ username, avatar: newUser.avatar });
+        const userObj = { username, avatar: newUser.avatar };
+        setCurrentUser(userObj);
+        localStorage.setItem('currentUser', JSON.stringify(userObj));
         alert('アカウントを作成しました！');
         setCurrentScreen('menu');
       } else {
@@ -265,10 +258,12 @@ export default function App() {
           return;
         }
 
-        setCurrentUser({
+        const userObj = {
           username: userData.username,
           avatar: userData.avatar || AVATARS[0]
-        });
+        };
+        setCurrentUser(userObj);
+        localStorage.setItem('currentUser', JSON.stringify(userObj));
         setCurrentScreen('menu');
       }
       setPasswordInput('');
@@ -278,8 +273,10 @@ export default function App() {
     }
   };
 
+  // ログアウト（localStorage からクリア）
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('currentUser');
     setCurrentScreen('auth');
     setIsTocOpen(false);
   };
@@ -302,7 +299,6 @@ export default function App() {
     setCurrentScreen('album');
   };
 
-  // 写真追加処理
   const handleImageUpload = (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -338,9 +334,7 @@ export default function App() {
 
   const createBubble = async (imgSrc, genre) => {
     const depth = Math.random();
-    // ぼやけを防ぐためシャボン玉のサイズを拡大
     const size = Math.floor(depth * 120) + 80;
-    // ぼやけ(blur)を無くして高画質に保つ
     const opacity = 0.5 + depth * 0.5;
     const blur = 0; 
     const zIndex = Math.floor(depth * 100);
@@ -445,7 +439,7 @@ export default function App() {
     ? bubbles
     : bubbles.filter(b => b.genre === selectedGenre);
 
-  // 1. ログイン / アカウント作成 画面
+  // 1. ログイン / 新規登録 画面
   if (currentScreen === 'auth') {
     return (
       <div style={styles.authContainer}>
@@ -538,12 +532,12 @@ export default function App() {
       <div style={styles.menuContainer}>
         <div style={styles.menuHeader}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser.avatar?.bg || 'transparent' }}>
-              {renderAvatarIcon(currentUser.avatar)}
+            <span style={{ ...styles.avatarBadgeSmall, backgroundColor: currentUser?.avatar?.bg || 'transparent' }}>
+              {renderAvatarIcon(currentUser?.avatar)}
             </span>
-            <span><strong>{currentUser.username}</strong></span>
+            <span><strong>{currentUser?.username}</strong></span>
           </div>
-          <button style={styles.logoutBtn} onClick={handleLogout}>ログアウト</button>
+          <button className="logout-btn" style={styles.logoutBtn} onClick={handleLogout}>ログアウト</button>
         </div>
 
         <h2 style={{ color: '#fff', marginBottom: '30px' }}>📖 アルバムを選択</h2>
@@ -830,7 +824,7 @@ export default function App() {
               }}
             >
               <div style={styles.bubbleGlass}>
-                <img src={b.src} alt="bubble-item" style={styles.bubbleImg} />
+                <img src={b.src} alt="bubble-item" className="bubble-img" style={styles.bubbleImg} />
                 {b.authorAvatar && (
                   <div 
                     title={`${b.author} (${b.genre || '未分類'})`}
@@ -859,7 +853,6 @@ export default function App() {
       )}
 
       <style>{`
-        /* 浮遊範囲を画面上部を大きく突き抜ける位置(-250px)まで引き上げ */
         @keyframes floatUp {
           0% { transform: translateY(105vh); }
           100% { transform: translateY(-250px); }
@@ -978,7 +971,6 @@ const styles = {
     boxShadow: 'inset 0 0 20px rgba(255,255,255,0.6), inset 10px 0 15px rgba(255,0,150,0.3), inset -10px 0 15px rgba(0,255,255,0.3), 0 0 15px rgba(255,255,255,0.4)',
     display: 'flex', alignItems: 'center', justifyContent: 'center'
   },
-  // 高画質表示用スタイルの適用
   bubbleImg: { 
     width: '85%', 
     height: '85%', 
