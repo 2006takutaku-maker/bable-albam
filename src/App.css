@@ -237,3 +237,16 @@ button:active {
     display: none;
   }
 }
+* プロフィールボタンとログアウトボタンの重なり対策 */
+.logout-btn, .profile-btn, .btn-logout {
+  position: relative; /* 重なり順を制御するための基準 */
+  z-index: 10;        /* 数値を大きくして一番手前に表示 */
+  cursor: pointer;    /* クリック可能であることを明示 */
+  pointer-events: auto; /* クリックイベントを有効化 */
+}
+
+/* もし全体を覆っているコンテナがあれば、それが邪魔をしていないか確認 */
+.main-content, .app-container {
+  position: relative;
+  z-index: 1;
+}
