@@ -1,12 +1,11 @@
-import React, {
+  import React, {
   useState,
   useEffect,
-  useRef
+  useRef,
+  useCallback
 } from 'react';
 
-import {
-  initializeApp
-} from 'firebase/app';
+import { initializeApp } from 'firebase/app';
 
 import {
   getFirestore,
@@ -21,9 +20,14 @@ import {
   writeBatch
 } from 'firebase/firestore';
 
+import {
+  FilesetResolver,
+  FaceDetector
+} from '@mediapipe/tasks-vision';
+
 
 // =========================================================
-// 1. Firebase設定
+// 1. Firebase
 // =========================================================
 
 const firebaseConfig = {
@@ -46,54 +50,168 @@ const db = getFirestore(app);
 // =========================================================
 
 const AVATARS = [
-  {
-    type: 'emoji',
-    emoji: '🐱',
-    bg: '#ff7675'
-  },
-  {
-    type: 'emoji',
-    emoji: '🐶',
-    bg: '#74b9ff'
-  },
-  {
-    type: 'emoji',
-    emoji: '🐰',
-    bg: '#fd79a8'
-  },
-  {
-    type: 'emoji',
-    emoji: '🦊',
-    bg: '#ffeaa7'
-  },
-  {
-    type: 'emoji',
-    emoji: '🐼',
-    bg: '#55efc4'
-  },
-  {
-    type: 'emoji',
-    emoji: '🦁',
-    bg: '#e17055'
-  }
+  { type: 'emoji', emoji: '🐱', bg: '#ff7675' },
+  { type: 'emoji', emoji: '🐶', bg: '#74b9ff' },
+  { type: 'emoji', emoji: '🐰', bg: '#fd79a8' },
+  { type: 'emoji', emoji: '🦊', bg: '#ffeaa7' },
+  { type: 'emoji', emoji: '🐼', bg: '#55efc4' },
+  { type: 'emoji', emoji: '🦁', bg: '#e17055' }
 ];
 
 
 // =========================================================
-// 3. シャボン玉Canvas
-//
-// ・中央はほぼ歪ませない
-// ・外周だけ球面屈折
-// ・人物写真が壊れにくい
-// ・虹色の膜
-// ・外周リング
-// ・ハイライト
+// 3. MediaPipe Face Detector
+// =========================================================
+
+let faceDetectorPromise = null;
+
+const getFaceDetector = async () => {
+  if (!faceDetectorPromise) {
+    faceDetectorPromise = (async () => {
+
+      const vision = await FilesetResolver.forVisionTasks(
+        '/mediapipe/wasm'
+      );
+
+      const detector = await FaceDetector.createFromOptions(
+        vision,
+        {
+          baseOptions: {
+            modelAssetPath:
+              '/models/blaze_face_short_range.tflite'
+          },
+
+          runningMode: 'IMAGE',
+
+          minDetectionConfidence: 0.45
+        }
+      );
+
+      return detector;
+    })();
+  }
+
+  return faceDetectorPromise;
+};
+
+
+// =========================================================
+// 4. 顔検出
+// =========================================================
+
+const detectFaces = async (img) => {
+
+  try {
+
+    const detector = await getFaceDetector();
+
+    const result = detector.detect(img);
+
+    if (!result || !result.detections) {
+      return [];
+    }
+
+    return result.detections.map((detection) => {
+
+      const box = detection.boundingBox;
+
+      if (!box) {
+        return null;
+      }
+
+      return {
+        x: box.originX / img.width,
+        y: box.originY / img.height,
+        width: box.width / img.width,
+        height: box.height / img.height
+      };
+
+    }).filter(Boolean);
+
+  } catch (error) {
+
+    console.warn(
+      '顔検出に失敗しました。通常の球面屈折を使用します。',
+      error
+    );
+
+    return [];
+  }
+};
+
+
+// =========================================================
+// 5. 画像を圧縮
+// Firestoreに巨大な画像を直接入れないため
+// =========================================================
+
+const compressImage = (
+  src,
+  maxSize = 1600,
+  quality = 0.84
+) => {
+
+  return new Promise((resolve, reject) => {
+
+    const img = new Image();
+
+    img.onload = () => {
+
+      let width = img.width;
+      let height = img.height;
+
+      const scale =
+        Math.min(
+          1,
+          maxSize / Math.max(width, height)
+        );
+
+      width = Math.floor(width * scale);
+      height = Math.floor(height * scale);
+
+      const canvas =
+        document.createElement('canvas');
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx =
+        canvas.getContext('2d');
+
+      ctx.drawImage(
+        img,
+        0,
+        0,
+        width,
+        height
+      );
+
+      resolve(
+        canvas.toDataURL(
+          'image/jpeg',
+          quality
+        )
+      );
+    };
+
+    img.onerror = reject;
+
+    img.src = src;
+  });
+};
+
+
+// =========================================================
+// 6. シャボン玉 Canvas
 // =========================================================
 
 function BubbleCanvas({
   src,
-  size
+  size,
+  faces = [],
+  paused = false
 }) {
+
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -102,724 +220,758 @@ function BubbleCanvas({
 
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    let cancelled = false;
 
-    const img = new Image();
+    const render = async () => {
 
-    img.crossOrigin = 'anonymous';
-    img.src = src;
+      const img = new Image();
 
-    img.onload = () => {
+      img.onload = async () => {
 
-      const w = size;
-      const h = size;
+        if (cancelled) return;
 
-      canvas.width = w;
-      canvas.height = h;
+        const w = size;
+        const h = size;
 
-      ctx.clearRect(
-        0,
-        0,
-        w,
-        h
-      );
+        canvas.width = w;
+        canvas.height = h;
 
-      const cx = w / 2;
-      const cy = h / 2;
+        const ctx =
+          canvas.getContext('2d');
 
-      const radius =
-        Math.min(w, h) / 2 - 2;
+        if (!ctx) return;
 
 
-      // ==================================================
-      // 元画像を正方形キャンバスへ
-      // object-fit: cover 相当
-      // ==================================================
+        // -------------------------------------------------
+        // 元画像
+        // -------------------------------------------------
 
-      const offCanvas =
-        document.createElement('canvas');
+        const sourceCanvas =
+          document.createElement('canvas');
 
-      offCanvas.width = w;
-      offCanvas.height = h;
+        sourceCanvas.width = img.width;
+        sourceCanvas.height = img.height;
 
-      const offCtx =
-        offCanvas.getContext('2d');
+        const sourceCtx =
+          sourceCanvas.getContext('2d');
 
-      const imgRatio =
-        img.width / img.height;
-
-      const canvasRatio =
-        w / h;
-
-      let drawW;
-      let drawH;
-
-      if (imgRatio > canvasRatio) {
-
-        drawH = h;
-        drawW = h * imgRatio;
-
-      } else {
-
-        drawW = w;
-        drawH = w / imgRatio;
-
-      }
-
-      offCtx.drawImage(
-        img,
-        cx - drawW / 2,
-        cy - drawH / 2,
-        drawW,
-        drawH
-      );
-
-
-      const srcImgData =
-        offCtx.getImageData(
+        sourceCtx.drawImage(
+          img,
           0,
-          0,
-          w,
-          h
+          0
         );
 
-      const srcData =
-        srcImgData.data;
+        const sourceData =
+          sourceCtx.getImageData(
+            0,
+            0,
+            img.width,
+            img.height
+          );
+
+        const srcData =
+          sourceData.data;
 
 
-      const output =
-        ctx.createImageData(
-          w,
-          h
-        );
+        // -------------------------------------------------
+        // 出力
+        // -------------------------------------------------
 
-      const outData =
-        output.data;
+        const output =
+          ctx.createImageData(
+            w,
+            h
+          );
 
-
-      // ==================================================
-      // 写真の屈折
-      //
-      // 中央82% → ほぼそのまま
-      // 外側18% → 徐々に球面化
-      // ==================================================
-
-      const distortionStart = 0.78;
-
-      for (
-        let y = 0;
-        y < h;
-        y++
-      ) {
-
-        for (
-          let x = 0;
-          x < w;
-          x++
-        ) {
-
-          const dx =
-            x - cx;
-
-          const dy =
-            y - cy;
-
-          const dist =
-            Math.sqrt(
-              dx * dx +
-              dy * dy
-            );
-
-          const outIndex =
-            (y * w + x) * 4;
+        const outData =
+          output.data;
 
 
-          // 円の外
-          if (dist > radius) {
+        const centerX = w / 2;
+        const centerY = h / 2;
 
-            outData[
-              outIndex + 3
-            ] = 0;
+        const radius =
+          Math.min(w, h) / 2 - 3;
 
-            continue;
+
+        // -------------------------------------------------
+        // 顔保護関数
+        //
+        // 顔の中心ほど 1
+        // 顔の外側ほど 0
+        // -------------------------------------------------
+
+        const getFaceProtection =
+          (nx, ny) => {
+
+            let protection = 0;
+
+            for (const face of faces) {
+
+              const fx =
+                face.x * w;
+
+              const fy =
+                face.y * h;
+
+              const fw =
+                face.width * w;
+
+              const fh =
+                face.height * h;
+
+              // 顔の中心
+              const cx =
+                fx + fw / 2;
+
+              const cy =
+                fy + fh / 2;
+
+              const dx =
+                (nx - cx) / (fw * 0.72);
+
+              const dy =
+                (ny - cy) / (fh * 0.78);
+
+              const distance =
+                Math.sqrt(
+                  dx * dx +
+                  dy * dy
+                );
+
+              // 顔の中心から離れるほど弱く
+              const p =
+                Math.max(
+                  0,
+                  Math.min(
+                    1,
+                    1 - distance
+                  )
+                );
+
+              protection =
+                Math.max(
+                  protection,
+                  p
+                );
+            }
+
+            return protection;
+          };
+
+
+        // -------------------------------------------------
+        // 球面屈折
+        // -------------------------------------------------
+
+        for (let y = 0; y < h; y++) {
+
+          for (let x = 0; x < w; x++) {
+
+            const dx =
+              x - centerX;
+
+            const dy =
+              y - centerY;
+
+            const distance =
+              Math.sqrt(
+                dx * dx +
+                dy * dy
+              );
+
+            const index =
+              (y * w + x) * 4;
+
+
+            if (distance < radius) {
+
+              const r =
+                distance / radius;
+
+
+              // -------------------------------------------
+              // 基本球面
+              // -------------------------------------------
+
+              const sphere =
+                Math.sqrt(
+                  Math.max(
+                    0,
+                    1 - r * r
+                  )
+                );
+
+
+              // 外周ほど屈折を強く
+              const edgePower =
+                Math.pow(
+                  r,
+                  1.75
+                );
+
+
+              // -------------------------------------------
+              // 軽い非対称性
+              // 完全なCG円にならないようにする
+              // -------------------------------------------
+
+              const asymmetry =
+                1 +
+                Math.sin(
+                  Math.atan2(dy, dx) * 3
+                ) * 0.035;
+
+
+              // -------------------------------------------
+              // 通常の屈折
+              // -------------------------------------------
+
+              let refraction =
+                0.42 +
+                edgePower * 0.78;
+
+
+              refraction *= asymmetry;
+
+
+              // -------------------------------------------
+              // 顔保護
+              //
+              // 顔がある場所は
+              // 屈折率をかなり下げる
+              // -------------------------------------------
+
+              const protection =
+                getFaceProtection(
+                  x,
+                  y
+                );
+
+
+              const protectedRefraction =
+                refraction *
+                (
+                  1 -
+                  protection * 0.78
+                );
+
+
+              // -------------------------------------------
+              // 球面マッピング
+              // -------------------------------------------
+
+              let nx =
+                -dx *
+                protectedRefraction *
+                (0.48 + sphere * 0.52);
+
+              let ny =
+                -dy *
+                protectedRefraction *
+                (0.48 + sphere * 0.52);
+
+
+              // -------------------------------------------
+              // 顔部分はさらに少し中心寄せ
+              // -------------------------------------------
+
+              if (protection > 0) {
+
+                nx *=
+                  1 -
+                  protection * 0.15;
+
+                ny *=
+                  1 -
+                  protection * 0.15;
+              }
+
+
+              const srcX =
+                Math.floor(
+                  (
+                    centerX + nx
+                  ) /
+                  w *
+                  img.width
+                );
+
+              const srcY =
+                Math.floor(
+                  (
+                    centerY + ny
+                  ) /
+                  h *
+                  img.height
+                );
+
+
+              const clampedX =
+                Math.max(
+                  0,
+                  Math.min(
+                    img.width - 1,
+                    srcX
+                  )
+                );
+
+              const clampedY =
+                Math.max(
+                  0,
+                  Math.min(
+                    img.height - 1,
+                    srcY
+                  )
+                );
+
+
+              const srcIndex =
+                (
+                  clampedY *
+                  img.width +
+                  clampedX
+                ) * 4;
+
+
+              outData[index] =
+                srcData[srcIndex];
+
+              outData[index + 1] =
+                srcData[srcIndex + 1];
+
+              outData[index + 2] =
+                srcData[srcIndex + 2];
+
+              outData[index + 3] =
+                255;
+
+
+            } else {
+
+              outData[index + 3] =
+                0;
+            }
           }
-
-
-          const normalized =
-            dist / radius;
-
-
-          // --------------------------------------------
-          // 外周だけ歪ませる
-          // --------------------------------------------
-
-          let edgeFactor = 0;
-
-          if (
-            normalized >
-            distortionStart
-          ) {
-
-            edgeFactor =
-              (
-                normalized -
-                distortionStart
-              ) /
-              (
-                1 -
-                distortionStart
-              );
-
-            edgeFactor =
-              Math.min(
-                1,
-                edgeFactor
-              );
-
-            // smoothstep
-            edgeFactor =
-              edgeFactor *
-              edgeFactor *
-              (
-                3 -
-                2 * edgeFactor
-              );
-          }
-
-
-          /*
-           * 歪みをかなり弱くする。
-           *
-           * 以前のような
-           * 「人物の顔がグニャッとする」
-           * 現象を抑える。
-           */
-
-          const strength =
-            0.20 *
-            edgeFactor;
-
-
-          const lens =
-            Math.sin(
-              normalized *
-              Math.PI /
-              2
-            );
-
-
-          const nx =
-            -dx *
-            strength *
-            lens;
-
-          const ny =
-            -dy *
-            strength *
-            lens;
-
-
-          const sampleX =
-            Math.floor(
-              cx +
-              dx +
-              nx
-            );
-
-          const sampleY =
-            Math.floor(
-              cy +
-              dy +
-              ny
-            );
-
-
-          const sx =
-            Math.max(
-              0,
-              Math.min(
-                w - 1,
-                sampleX
-              )
-            );
-
-          const sy =
-            Math.max(
-              0,
-              Math.min(
-                h - 1,
-                sampleY
-              )
-            );
-
-
-          const srcIndex =
-            (
-              sy * w +
-              sx
-            ) * 4;
-
-
-          outData[outIndex] =
-            srcData[srcIndex];
-
-          outData[outIndex + 1] =
-            srcData[srcIndex + 1];
-
-          outData[outIndex + 2] =
-            srcData[srcIndex + 2];
-
-          outData[outIndex + 3] =
-            255;
         }
-      }
 
 
-      ctx.putImageData(
-        output,
-        0,
-        0
-      );
-
-
-      // ==================================================
-      // 球面の陰影
-      // ==================================================
-
-      ctx.save();
-
-      ctx.beginPath();
-
-      ctx.arc(
-        cx,
-        cy,
-        radius,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.clip();
-
-
-      const shade =
-        ctx.createRadialGradient(
-          cx - radius * 0.30,
-          cy - radius * 0.35,
-          radius * 0.05,
-
-          cx,
-          cy,
-          radius
-        );
-
-
-      shade.addColorStop(
-        0,
-        'rgba(255,255,255,0.08)'
-      );
-
-      shade.addColorStop(
-        0.55,
-        'rgba(255,255,255,0.015)'
-      );
-
-      shade.addColorStop(
-        0.82,
-        'rgba(0,0,0,0.04)'
-      );
-
-      shade.addColorStop(
-        1,
-        'rgba(0,0,0,0.28)'
-      );
-
-
-      ctx.globalCompositeOperation =
-        'multiply';
-
-      ctx.fillStyle =
-        shade;
-
-      ctx.fill();
-
-      ctx.restore();
-
-
-      // ==================================================
-      // 虹色の薄い膜
-      // ==================================================
-
-      ctx.save();
-
-      ctx.beginPath();
-
-      ctx.arc(
-        cx,
-        cy,
-        radius,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.clip();
-
-
-      const rainbow =
-        ctx.createConicGradient(
-          -Math.PI / 2,
-          cx,
-          cy
-        );
-
-
-      rainbow.addColorStop(
-        0,
-        'rgba(255,80,160,0.12)'
-      );
-
-      rainbow.addColorStop(
-        0.18,
-        'rgba(100,180,255,0.10)'
-      );
-
-      rainbow.addColorStop(
-        0.35,
-        'rgba(70,255,230,0.10)'
-      );
-
-      rainbow.addColorStop(
-        0.52,
-        'rgba(220,255,100,0.10)'
-      );
-
-      rainbow.addColorStop(
-        0.68,
-        'rgba(255,170,80,0.12)'
-      );
-
-      rainbow.addColorStop(
-        0.84,
-        'rgba(210,100,255,0.12)'
-      );
-
-      rainbow.addColorStop(
-        1,
-        'rgba(255,80,160,0.12)'
-      );
-
-
-      ctx.globalCompositeOperation =
-        'screen';
-
-      ctx.fillStyle =
-        rainbow;
-
-      ctx.fill();
-
-      ctx.restore();
-
-
-      // ==================================================
-      // 外周の虹色リング
-      // ==================================================
-
-      ctx.save();
-
-
-      const ring =
-        ctx.createConicGradient(
+        ctx.putImageData(
+          output,
           0,
-          cx,
-          cy
+          0
         );
 
 
-      ring.addColorStop(
-        0,
-        'rgba(255,90,180,0.65)'
-      );
+        // =================================================
+        // 7. シャボン玉の膜
+        // =================================================
 
-      ring.addColorStop(
-        0.16,
-        'rgba(100,180,255,0.55)'
-      );
+        ctx.save();
 
-      ring.addColorStop(
-        0.32,
-        'rgba(80,255,230,0.55)'
-      );
+        ctx.beginPath();
 
-      ring.addColorStop(
-        0.48,
-        'rgba(230,255,100,0.50)'
-      );
-
-      ring.addColorStop(
-        0.64,
-        'rgba(255,150,100,0.55)'
-      );
-
-      ring.addColorStop(
-        0.80,
-        'rgba(190,100,255,0.55)'
-      );
-
-      ring.addColorStop(
-        1,
-        'rgba(255,90,180,0.65)'
-      );
-
-
-      ctx.globalCompositeOperation =
-        'screen';
-
-      ctx.strokeStyle =
-        ring;
-
-      ctx.lineWidth =
-        Math.max(
-          2,
-          size * 0.025
-        );
-
-
-      ctx.beginPath();
-
-      ctx.arc(
-        cx,
-        cy,
-        radius -
-          ctx.lineWidth / 2,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.stroke();
-
-      ctx.restore();
-
-
-      // ==================================================
-      // 外周の透明膜
-      // ==================================================
-
-      ctx.save();
-
-
-      const edge =
-        ctx.createRadialGradient(
-          cx,
-          cy,
-          radius * 0.70,
-
-          cx,
-          cy,
-          radius
-        );
-
-
-      edge.addColorStop(
-        0,
-        'rgba(255,255,255,0)'
-      );
-
-      edge.addColorStop(
-        0.78,
-        'rgba(255,255,255,0)'
-      );
-
-      edge.addColorStop(
-        0.92,
-        'rgba(255,255,255,0.08)'
-      );
-
-      edge.addColorStop(
-        0.98,
-        'rgba(255,255,255,0.32)'
-      );
-
-      edge.addColorStop(
-        1,
-        'rgba(255,255,255,0.55)'
-      );
-
-
-      ctx.globalCompositeOperation =
-        'screen';
-
-      ctx.fillStyle =
-        edge;
-
-      ctx.beginPath();
-
-      ctx.arc(
-        cx,
-        cy,
-        radius,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.fill();
-
-      ctx.restore();
-
-
-      // ==================================================
-      // 大きなハイライト
-      // ==================================================
-
-      ctx.save();
-
-      ctx.globalCompositeOperation =
-        'screen';
-
-
-      const hx =
-        cx -
-        radius * 0.30;
-
-      const hy =
-        cy -
-        radius * 0.32;
-
-
-      const highlight =
-        ctx.createRadialGradient(
-          hx,
-          hy,
+        ctx.arc(
+          centerX,
+          centerY,
+          radius,
           0,
+          Math.PI * 2
+        );
 
-          hx,
-          hy,
-          radius * 0.45
+        ctx.clip();
+
+
+        // -------------------------------------------------
+        // 虹色の薄膜
+        // -------------------------------------------------
+
+        const rainbow =
+          ctx.createConicGradient(
+            -0.5,
+            centerX,
+            centerY
+          );
+
+        rainbow.addColorStop(
+          0.00,
+          'rgba(255,80,150,0.20)'
+        );
+
+        rainbow.addColorStop(
+          0.16,
+          'rgba(255,220,70,0.16)'
+        );
+
+        rainbow.addColorStop(
+          0.32,
+          'rgba(80,255,180,0.14)'
+        );
+
+        rainbow.addColorStop(
+          0.48,
+          'rgba(60,220,255,0.16)'
+        );
+
+        rainbow.addColorStop(
+          0.64,
+          'rgba(120,100,255,0.17)'
+        );
+
+        rainbow.addColorStop(
+          0.82,
+          'rgba(255,80,220,0.18)'
+        );
+
+        rainbow.addColorStop(
+          1,
+          'rgba(255,80,150,0.20)'
         );
 
 
-      highlight.addColorStop(
-        0,
-        'rgba(255,255,255,0.60)'
-      );
+        ctx.globalCompositeOperation =
+          'screen';
 
-      highlight.addColorStop(
-        0.15,
-        'rgba(255,255,255,0.28)'
-      );
+        ctx.fillStyle =
+          rainbow;
 
-      highlight.addColorStop(
-        0.40,
-        'rgba(255,255,255,0.08)'
-      );
+        ctx.globalAlpha =
+          0.55;
 
-      highlight.addColorStop(
-        1,
-        'rgba(255,255,255,0)'
-      );
-
-
-      ctx.fillStyle =
-        highlight;
-
-      ctx.beginPath();
-
-      ctx.arc(
-        hx,
-        hy,
-        radius * 0.45,
-        0,
-        Math.PI * 2
-      );
-
-      ctx.fill();
-
-      ctx.restore();
-
-
-      // ==================================================
-      // 小さい反射
-      // ==================================================
-
-      ctx.save();
-
-      ctx.globalCompositeOperation =
-        'screen';
-
-
-      const sx =
-        cx +
-        radius * 0.25;
-
-      const sy =
-        cy -
-        radius * 0.35;
-
-
-      const small =
-        ctx.createRadialGradient(
-          sx,
-          sy,
+        ctx.fillRect(
           0,
-
-          sx,
-          sy,
-          radius * 0.18
+          0,
+          w,
+          h
         );
 
 
-      small.addColorStop(
-        0,
-        'rgba(255,255,255,0.45)'
-      );
+        // -------------------------------------------------
+        // 外周の虹色リング
+        // -------------------------------------------------
 
-      small.addColorStop(
-        0.4,
-        'rgba(255,255,255,0.15)'
-      );
+        ctx.globalAlpha =
+          0.9;
 
-      small.addColorStop(
-        1,
-        'rgba(255,255,255,0)'
-      );
+        ctx.lineWidth =
+          Math.max(
+            2,
+            size * 0.035
+          );
+
+        ctx.strokeStyle =
+          rainbow;
+
+        ctx.beginPath();
+
+        ctx.arc(
+          centerX,
+          centerY,
+          radius - 1,
+          0,
+          Math.PI * 2
+        );
+
+        ctx.stroke();
 
 
-      ctx.fillStyle =
-        small;
+        // -------------------------------------------------
+        // もう一段細いハイライトリング
+        // -------------------------------------------------
 
-      ctx.beginPath();
+        const edgeGradient =
+          ctx.createLinearGradient(
+            0,
+            0,
+            w,
+            h
+          );
 
-      ctx.arc(
-        sx,
-        sy,
-        radius * 0.18,
-        0,
-        Math.PI * 2
-      );
+        edgeGradient.addColorStop(
+          0,
+          'rgba(255,255,255,0.75)'
+        );
 
-      ctx.fill();
+        edgeGradient.addColorStop(
+          0.25,
+          'rgba(180,240,255,0.15)'
+        );
 
-      ctx.restore();
+        edgeGradient.addColorStop(
+          0.55,
+          'rgba(255,255,255,0.02)'
+        );
 
+        edgeGradient.addColorStop(
+          0.82,
+          'rgba(255,180,240,0.45)'
+        );
+
+        edgeGradient.addColorStop(
+          1,
+          'rgba(255,255,255,0.7)'
+        );
+
+        ctx.lineWidth =
+          Math.max(
+            1,
+            size * 0.012
+          );
+
+        ctx.strokeStyle =
+          edgeGradient;
+
+        ctx.beginPath();
+
+        ctx.arc(
+          centerX,
+          centerY,
+          radius - 2,
+          0,
+          Math.PI * 2
+        );
+
+        ctx.stroke();
+
+
+        // =================================================
+        // 8. 大きな環境反射
+        // =================================================
+
+        const reflection =
+          ctx.createRadialGradient(
+            centerX - radius * 0.34,
+            centerY - radius * 0.38,
+            2,
+            centerX - radius * 0.28,
+            centerY - radius * 0.30,
+            radius * 0.58
+          );
+
+        reflection.addColorStop(
+          0,
+          'rgba(255,255,255,0.82)'
+        );
+
+        reflection.addColorStop(
+          0.13,
+          'rgba(255,255,255,0.40)'
+        );
+
+        reflection.addColorStop(
+          0.38,
+          'rgba(220,245,255,0.13)'
+        );
+
+        reflection.addColorStop(
+          1,
+          'rgba(255,255,255,0)'
+        );
+
+
+        ctx.globalAlpha =
+          0.9;
+
+        ctx.fillStyle =
+          reflection;
+
+        ctx.beginPath();
+
+        ctx.ellipse(
+          centerX - radius * 0.27,
+          centerY - radius * 0.32,
+          radius * 0.26,
+          radius * 0.19,
+          -0.35,
+          0,
+          Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        // -------------------------------------------------
+        // 小さい白反射
+        // -------------------------------------------------
+
+        const smallReflection =
+          ctx.createRadialGradient(
+            centerX + radius * 0.25,
+            centerY - radius * 0.18,
+            1,
+            centerX + radius * 0.25,
+            centerY - radius * 0.18,
+            radius * 0.22
+          );
+
+        smallReflection.addColorStop(
+          0,
+          'rgba(255,255,255,0.65)'
+        );
+
+        smallReflection.addColorStop(
+          0.35,
+          'rgba(255,255,255,0.20)'
+        );
+
+        smallReflection.addColorStop(
+          1,
+          'rgba(255,255,255,0)'
+        );
+
+        ctx.fillStyle =
+          smallReflection;
+
+        ctx.beginPath();
+
+        ctx.arc(
+          centerX + radius * 0.25,
+          centerY - radius * 0.18,
+          radius * 0.22,
+          0,
+          Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        // =================================================
+        // 9. 球体の内側の陰影
+        // =================================================
+
+        const shadow =
+          ctx.createRadialGradient(
+            centerX,
+            centerY,
+            radius * 0.35,
+            centerX,
+            centerY,
+            radius
+          );
+
+        shadow.addColorStop(
+          0,
+          'rgba(0,0,0,0)'
+        );
+
+        shadow.addColorStop(
+          0.68,
+          'rgba(0,0,0,0.03)'
+        );
+
+        shadow.addColorStop(
+          0.86,
+          'rgba(0,0,0,0.14)'
+        );
+
+        shadow.addColorStop(
+          1,
+          'rgba(0,0,0,0.38)'
+        );
+
+
+        ctx.globalCompositeOperation =
+          'multiply';
+
+        ctx.globalAlpha =
+          0.85;
+
+        ctx.fillStyle =
+          shadow;
+
+        ctx.beginPath();
+
+        ctx.arc(
+          centerX,
+          centerY,
+          radius,
+          0,
+          Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        // =================================================
+        // 10. 外周の光
+        // =================================================
+
+        ctx.globalCompositeOperation =
+          'screen';
+
+        ctx.globalAlpha =
+          0.8;
+
+        const rim =
+          ctx.createRadialGradient(
+            centerX,
+            centerY,
+            radius * 0.75,
+            centerX,
+            centerY,
+            radius
+          );
+
+        rim.addColorStop(
+          0,
+          'rgba(255,255,255,0)'
+        );
+
+        rim.addColorStop(
+          0.8,
+          'rgba(255,255,255,0.02)'
+        );
+
+        rim.addColorStop(
+          1,
+          'rgba(190,235,255,0.42)'
+        );
+
+        ctx.fillStyle =
+          rim;
+
+        ctx.beginPath();
+
+        ctx.arc(
+          centerX,
+          centerY,
+          radius,
+          0,
+          Math.PI * 2
+        );
+
+        ctx.fill();
+
+
+        ctx.restore();
+
+      };
+
+      img.src = src;
     };
 
 
-    img.onerror = () => {
-      console.error(
-        '画像の読み込みに失敗しました'
-      );
+    render();
+
+    return () => {
+      cancelled = true;
     };
 
-  }, [src, size]);
+  }, [
+    src,
+    size,
+    JSON.stringify(faces)
+  ]);
 
 
   return (
     <canvas
       ref={canvasRef}
       style={{
+        pointerEvents: 'none',
         width: '100%',
         height: '100%',
-        pointerEvents: 'none',
-        borderRadius: '50%',
-        display: 'block'
+        borderRadius: '50%'
       }}
     />
   );
@@ -827,213 +979,118 @@ function BubbleCanvas({
 
 
 // =========================================================
-// 4. メインアプリ
+// 11. App
 // =========================================================
 
 export default function App() {
 
-  // -------------------------------------------------------
-  // ユーザー
-  // -------------------------------------------------------
+  const [currentUser, setCurrentUser] =
+    useState(() => {
 
-  const [
-    currentUser,
-    setCurrentUser
-  ] = useState(() => {
+      const saved =
+        localStorage.getItem(
+          'currentUser'
+        );
 
-    const savedUser =
+      return saved
+        ? JSON.parse(saved)
+        : null;
+    });
+
+
+  const [authMode, setAuthMode] =
+    useState('login');
+
+  const [usernameInput, setUsernameInput] =
+    useState('');
+
+  const [passwordInput, setPasswordInput] =
+    useState('');
+
+
+  const [selectedAvatarIdx, setSelectedAvatarIdx] =
+    useState(0);
+
+  const [customAvatar, setCustomAvatar] =
+    useState(null);
+
+
+  const [currentScreen, setCurrentScreen] =
+    useState(() =>
       localStorage.getItem(
         'currentUser'
-      );
-
-    return savedUser
-      ? JSON.parse(savedUser)
-      : null;
-  });
+      )
+        ? 'menu'
+        : 'auth'
+    );
 
 
-  // -------------------------------------------------------
-  // 認証
-  // -------------------------------------------------------
+  const [activeTab, setActiveTab] =
+    useState('private');
 
-  const [
-    authMode,
-    setAuthMode
-  ] = useState('login');
+  const [roomNumber, setRoomNumber] =
+    useState('');
 
-  const [
-    usernameInput,
-    setUsernameInput
-  ] = useState('');
-
-  const [
-    passwordInput,
-    setPasswordInput
-  ] = useState('');
+  const [roomInput, setRoomInput] =
+    useState('');
 
 
-  // -------------------------------------------------------
-  // アバター
-  // -------------------------------------------------------
+  const [genres, setGenres] =
+    useState([
+      'すべて',
+      '日常',
+      '旅行',
+      'イベント'
+    ]);
 
-  const [
-    selectedAvatarIdx,
-    setSelectedAvatarIdx
-  ] = useState(0);
-
-  const [
-    customAvatar,
-    setCustomAvatar
-  ] = useState(null);
+  const [selectedGenre, setSelectedGenre] =
+    useState('すべて');
 
 
-  // -------------------------------------------------------
-  // 画面
-  // -------------------------------------------------------
+  const [roomMembers, setRoomMembers] =
+    useState([]);
 
-  const [
-    currentScreen,
-    setCurrentScreen
-  ] = useState(() => {
-
-    return localStorage.getItem(
-      'currentUser'
-    )
-      ? 'menu'
-      : 'auth';
-  });
+  const [bubbles, setBubbles] =
+    useState([]);
 
 
-  // -------------------------------------------------------
-  // アルバム
-  // -------------------------------------------------------
-
-  const [
-    activeTab,
-    setActiveTab
-  ] = useState('private');
-
-  const [
-    roomNumber,
-    setRoomNumber
-  ] = useState('');
-
-  const [
-    roomInput,
-    setRoomInput
-  ] = useState('');
+  const [albumSettings, setAlbumSettings] =
+    useState({
+      bgType: 'preset',
+      bgColor: '#0f2027',
+      bgImage: null,
+      presetBg:
+        'linear-gradient(180deg,#0f2027 0%,#203a43 50%,#2c5364 100%)'
+    });
 
 
-  // -------------------------------------------------------
-  // ジャンル
-  // -------------------------------------------------------
+  const [selectedImage, setSelectedImage] =
+    useState(null);
 
-  const [
-    genres,
-    setGenres
-  ] = useState([
-    'すべて',
-    '日常',
-    '旅行',
-    'イベント'
-  ]);
+  const [isTocOpen, setIsTocOpen] =
+    useState(false);
 
-  const [
-    selectedGenre,
-    setSelectedGenre
-  ] = useState('すべて');
+  const [tocActiveTab, setTocActiveTab] =
+    useState('photos');
 
 
-  // -------------------------------------------------------
-  // メンバー
-  // -------------------------------------------------------
-
-  const [
-    roomMembers,
-    setRoomMembers
-  ] = useState([]);
+  const [speedMode, setSpeedMode] =
+    useState('normal');
 
 
-  // -------------------------------------------------------
-  // シャボン玉
-  // -------------------------------------------------------
-
-  const [
-    bubbles,
-    setBubbles
-  ] = useState([]);
+  // 全体停止
+  const [isPaused, setIsPaused] =
+    useState(false);
 
 
-  // -------------------------------------------------------
-  // 背景
-  // -------------------------------------------------------
+  // 顔検出中
+  const [isDetectingFace, setIsDetectingFace] =
+    useState(false);
 
-  const [
-    albumSettings,
-    setAlbumSettings
-  ] = useState({
-    bgType: 'preset',
-    bgColor: '#0f2027',
-    bgImage: null,
-    presetBg:
-      'linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)'
-  });
-
-
-  // -------------------------------------------------------
-  // モーダル
-  // -------------------------------------------------------
-
-  const [
-    selectedImage,
-    setSelectedImage
-  ] = useState(null);
-
-
-  // -------------------------------------------------------
-  // 目次
-  // -------------------------------------------------------
-
-  const [
-    isTocOpen,
-    setIsTocOpen
-  ] = useState(false);
-
-  const [
-    tocActiveTab,
-    setTocActiveTab
-  ] = useState('photos');
-
-
-  // -------------------------------------------------------
-  // 速度
-  // -------------------------------------------------------
-
-  const [
-    speedMode,
-    setSpeedMode
-  ] = useState('normal');
-
-
-  // -------------------------------------------------------
-  // ★ 停止状態
-  // -------------------------------------------------------
-
-  const [
-    isPaused,
-    setIsPaused
-  ] = useState(false);
-
-
-  // =======================================================
-  // Album Key
-  // =======================================================
 
   const getAlbumKey = () => {
 
-    if (
-      activeTab === 'private'
-    ) {
+    if (activeTab === 'private') {
 
       return `private_${currentUser?.username}`;
 
@@ -1055,46 +1112,42 @@ export default function App() {
 
     let wakeLock = null;
 
+    const requestWakeLock = async () => {
 
-    const requestWakeLock =
-      async () => {
+      try {
 
-        try {
+        if (
+          'wakeLock' in navigator
+        ) {
 
-          if (
-            'wakeLock' in navigator
-          ) {
-
-            wakeLock =
-              await navigator.wakeLock.request(
-                'screen'
-              );
-          }
-
-        } catch (err) {
-
-          console.log(
-            'Wake Lock エラー:',
-            err
-          );
+          wakeLock =
+            await navigator.wakeLock.request(
+              'screen'
+            );
         }
-      };
+
+      } catch (error) {
+
+        console.log(
+          'Wake Lock:',
+          error
+        );
+      }
+    };
 
 
     if (
-      currentScreen === 'album'
+      currentScreen === 'album' &&
+      !isPaused
     ) {
 
       requestWakeLock();
-
     }
 
 
     return () => {
 
-      if (
-        wakeLock !== null
-      ) {
+      if (wakeLock) {
 
         wakeLock.release();
 
@@ -1102,11 +1155,14 @@ export default function App() {
       }
     };
 
-  }, [currentScreen]);
+  }, [
+    currentScreen,
+    isPaused
+  ]);
 
 
   // =======================================================
-  // Firestore リアルタイム同期
+  // Firestore
   // =======================================================
 
   useEffect(() => {
@@ -1115,14 +1171,9 @@ export default function App() {
       currentScreen !== 'album' ||
       !albumKey
     ) {
-
       return;
     }
 
-
-    // -----------------------------------------------------
-    // シャボン玉
-    // -----------------------------------------------------
 
     const bubblesRef =
       collection(
@@ -1136,26 +1187,22 @@ export default function App() {
     const unsubscribeBubbles =
       onSnapshot(
         bubblesRef,
-        (snapshot) => {
+        snapshot => {
 
-          const loadedBubbles =
+          const loaded =
             snapshot.docs.map(
-              bubbleDoc => ({
-                id: bubbleDoc.id,
-                ...bubbleDoc.data()
+              docSnap => ({
+                id: docSnap.id,
+                ...docSnap.data()
               })
             );
 
           setBubbles(
-            loadedBubbles
+            loaded
           );
         }
       );
 
-
-    // -----------------------------------------------------
-    // 設定
-    // -----------------------------------------------------
 
     const settingsRef =
       doc(
@@ -1168,7 +1215,7 @@ export default function App() {
     const unsubscribeSettings =
       onSnapshot(
         settingsRef,
-        (docSnap) => {
+        docSnap => {
 
           if (
             docSnap.exists()
@@ -1181,9 +1228,7 @@ export default function App() {
               data
             );
 
-
             if (
-              data.genres &&
               Array.isArray(
                 data.genres
               )
@@ -1196,22 +1241,14 @@ export default function App() {
 
           } else {
 
-            const defaultSettings = {
-
+            const defaults = {
               bgType: 'preset',
-
-              bgColor:
-                '#0f2027',
-
-              bgImage:
-                null,
-
+              bgColor: '#0f2027',
+              bgImage: null,
               presetBg:
                 activeTab === 'private'
-
-                  ? 'linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)'
-
-                  : 'linear-gradient(180deg, #141e30 0%, #243b55 100%)',
+                  ? 'linear-gradient(180deg,#0f2027 0%,#203a43 50%,#2c5364 100%)'
+                  : 'linear-gradient(180deg,#141e30 0%,#243b55 100%)',
 
               genres: [
                 'すべて',
@@ -1221,18 +1258,13 @@ export default function App() {
               ]
             };
 
-
             setAlbumSettings(
-              defaultSettings
+              defaults
             );
           }
         }
       );
 
-
-    // -----------------------------------------------------
-    // メンバー
-    // -----------------------------------------------------
 
     let unsubscribeMembers =
       () => {};
@@ -1254,16 +1286,12 @@ export default function App() {
       unsubscribeMembers =
         onSnapshot(
           membersRef,
-          (snapshot) => {
-
-            const loadedMembers =
-              snapshot.docs.map(
-                memberDoc =>
-                  memberDoc.data()
-              );
+          snapshot => {
 
             setRoomMembers(
-              loadedMembers
+              snapshot.docs.map(
+                d => d.data()
+              )
             );
           }
         );
@@ -1310,7 +1338,6 @@ export default function App() {
       unsubscribeSettings();
 
       unsubscribeMembers();
-
     };
 
   }, [
@@ -1322,33 +1349,27 @@ export default function App() {
 
 
   // =======================================================
-  // 設定更新
+  // Settings
   // =======================================================
 
   const updateSettings =
-    async (newSettings) => {
+    async newSettings => {
 
       const updated = {
         ...albumSettings,
         ...newSettings
       };
 
-
       setAlbumSettings(
         updated
       );
 
-
-      const settingsRef =
+      await setDoc(
         doc(
           db,
           'albums',
           albumKey
-        );
-
-
-      await setDoc(
-        settingsRef,
+        ),
         updated,
         {
           merge: true
@@ -1358,7 +1379,7 @@ export default function App() {
 
 
   // =======================================================
-  // ジャンル追加
+  // Genre
   // =======================================================
 
   const handleAddGenre = () => {
@@ -1368,7 +1389,6 @@ export default function App() {
         '新しいジャンル名を入力してください:'
       );
 
-
     if (
       newGenre &&
       newGenre.trim()
@@ -1377,18 +1397,17 @@ export default function App() {
       const trimmed =
         newGenre.trim();
 
-
       if (
         !genres.includes(
           trimmed
         )
       ) {
 
-        const nextGenres = [
-          ...genres,
-          trimmed
-        ];
-
+        const nextGenres =
+          [
+            ...genres,
+            trimmed
+          ];
 
         setGenres(
           nextGenres
@@ -1398,10 +1417,8 @@ export default function App() {
           trimmed
         );
 
-
         updateSettings({
-          genres:
-            nextGenres
+          genres: nextGenres
         });
 
       } else {
@@ -1415,14 +1432,14 @@ export default function App() {
 
 
   // =======================================================
-  // アバターアップロード
+  // Avatar
   // =======================================================
 
   const handleCustomAvatarUpload =
-    (e) => {
+    e => {
 
       const file =
-        e.target.files[0];
+        e.target.files?.[0];
 
       if (!file) return;
 
@@ -1432,12 +1449,11 @@ export default function App() {
 
 
       reader.onload =
-        (event) => {
+        event => {
 
           setCustomAvatar({
             type: 'image',
-            url:
-              event.target.result
+            url: event.target.result
           });
 
           setSelectedAvatarIdx(
@@ -1452,10 +1468,6 @@ export default function App() {
     };
 
 
-  // =======================================================
-  // 選択中アバター
-  // =======================================================
-
   const getSelectedAvatar =
     () => {
 
@@ -1467,7 +1479,6 @@ export default function App() {
         return customAvatar;
       }
 
-
       return (
         AVATARS[
           selectedAvatarIdx
@@ -1478,11 +1489,11 @@ export default function App() {
 
 
   // =======================================================
-  // 認証
+  // Auth
   // =======================================================
 
   const handleAuth =
-    async (e) => {
+    async e => {
 
       e.preventDefault();
 
@@ -1523,10 +1534,6 @@ export default function App() {
           );
 
 
-        // -------------------------------------------------
-        // 新規登録
-        // -------------------------------------------------
-
         if (
           authMode === 'register'
         ) {
@@ -1544,14 +1551,10 @@ export default function App() {
 
 
           const newUser = {
-
             username,
-
             password,
-
             avatar:
               getSelectedAvatar()
-
           };
 
 
@@ -1562,12 +1565,9 @@ export default function App() {
 
 
           const userObj = {
-
             username,
-
             avatar:
               newUser.avatar
-
           };
 
 
@@ -1593,19 +1593,14 @@ export default function App() {
             'menu'
           );
 
-
         } else {
-
-          // -----------------------------------------------
-          // ログイン
-          // -----------------------------------------------
 
           if (
             !userSnap.exists()
           ) {
 
             alert(
-              'ユーザーが存在しません。新規登録を行ってください。'
+              'ユーザーが存在しません。'
             );
 
             return;
@@ -1630,14 +1625,12 @@ export default function App() {
 
 
           const userObj = {
-
             username:
               userData.username,
 
             avatar:
               userData.avatar ||
               AVATARS[0]
-
           };
 
 
@@ -1662,10 +1655,11 @@ export default function App() {
 
         setPasswordInput('');
 
+      } catch (error) {
 
-      } catch (err) {
-
-        console.error(err);
+        console.error(
+          error
+        );
 
         alert(
           '認証処理中にエラーが発生しました。'
@@ -1675,7 +1669,7 @@ export default function App() {
 
 
   // =======================================================
-  // ログアウト
+  // Logout
   // =======================================================
 
   const handleLogout = () => {
@@ -1699,7 +1693,7 @@ export default function App() {
 
 
   // =======================================================
-  // プライベート
+  // Album
   // =======================================================
 
   const enterPrivateAlbum =
@@ -1719,15 +1713,10 @@ export default function App() {
     };
 
 
-  // =======================================================
-  // 共有ルーム
-  // =======================================================
-
   const enterSharedAlbum =
-    (e) => {
+    e => {
 
       e.preventDefault();
-
 
       if (
         !roomInput.trim()
@@ -1760,75 +1749,141 @@ export default function App() {
 
 
   // =======================================================
-  // 写真追加
+  // Image Upload
   // =======================================================
 
   const handleImageUpload =
-    (e) => {
+    async e => {
 
       const files =
         Array.from(
-          e.target.files
+          e.target.files || []
         );
 
 
       if (
         files.length === 0
       ) {
-
         return;
       }
 
 
       const genreToAssign =
         selectedGenre === 'すべて'
-
           ? (
               genres[1] ||
               '未分類'
             )
-
           : selectedGenre;
 
 
-      files.forEach(
-        file => {
-
-          const reader =
-            new FileReader();
-
-
-          reader.onload =
-            (event) => {
-
-              createBubble(
-                event.target.result,
-                genreToAssign
-              );
-            };
-
-
-          reader.readAsDataURL(
-            file
-          );
-        }
+      setIsDetectingFace(
+        true
       );
 
 
-      // 同じファイルを再選択できるようにする
-      e.target.value = '';
+      try {
+
+        for (
+          const file of files
+        ) {
+
+          const rawSrc =
+            await new Promise(
+              (resolve, reject) => {
+
+                const reader =
+                  new FileReader();
+
+                reader.onload =
+                  e =>
+                    resolve(
+                      e.target.result
+                    );
+
+                reader.onerror =
+                  reject;
+
+                reader.readAsDataURL(
+                  file
+                );
+              }
+            );
+
+
+          const compressed =
+            await compressImage(
+              rawSrc
+            );
+
+
+          const img =
+            await new Promise(
+              (resolve, reject) => {
+
+                const image =
+                  new Image();
+
+                image.onload =
+                  () =>
+                    resolve(
+                      image
+                    );
+
+                image.onerror =
+                  reject;
+
+                image.src =
+                  compressed;
+              }
+            );
+
+
+          // 顔検出
+          const faces =
+            await detectFaces(
+              img
+            );
+
+
+          await createBubble(
+            compressed,
+            genreToAssign,
+            faces
+          );
+        }
+
+      } catch (error) {
+
+        console.error(
+          error
+        );
+
+        alert(
+          '画像の追加中にエラーが発生しました。'
+        );
+
+      } finally {
+
+        setIsDetectingFace(
+          false
+        );
+
+        e.target.value =
+          '';
+      }
     };
 
 
   // =======================================================
-  // 背景画像
+  // Background Image
   // =======================================================
 
   const handleBgImageUpload =
-    (e) => {
+    e => {
 
       const file =
-        e.target.files[0];
+        e.target.files?.[0];
 
       if (!file) return;
 
@@ -1838,16 +1893,14 @@ export default function App() {
 
 
       reader.onload =
-        (event) => {
+        event => {
 
           updateSettings({
-
             bgImage:
               event.target.result,
 
             bgType:
               'image'
-
           });
         };
 
@@ -1859,7 +1912,7 @@ export default function App() {
 
 
   // =======================================================
-  // 浮遊速度
+  // Animation speed
   // =======================================================
 
   const getBaseDuration =
@@ -1872,7 +1925,6 @@ export default function App() {
         return 55;
       }
 
-
       if (
         speedMode === 'fast'
       ) {
@@ -1880,39 +1932,30 @@ export default function App() {
         return 25;
       }
 
-
       return 40;
     };
 
 
   // =======================================================
-  // シャボン玉作成
+  // Create Bubble
   // =======================================================
 
   const createBubble =
     async (
       imgSrc,
-      genre
+      genre,
+      faces = []
     ) => {
-
-      /*
-       * 以前よりかなり大きく。
-       *
-       * depth:
-       * 0 → 小さめ
-       * 1 → 大きめ
-       *
-       * 120〜280px
-       */
 
       const depth =
         Math.random();
 
 
+      // 前より大きく
       const size =
         Math.floor(
-          depth * 160
-        ) + 120;
+          depth * 180
+        ) + 180;
 
 
       const opacity =
@@ -1926,7 +1969,7 @@ export default function App() {
         );
 
 
-      const newBubbleData = {
+      const newBubble = {
 
         src:
           imgSrc,
@@ -1943,6 +1986,8 @@ export default function App() {
 
         depth,
 
+        faces,
+
         author:
           currentUser.username,
 
@@ -1951,8 +1996,8 @@ export default function App() {
 
         left:
           Math.floor(
-            Math.random() * 82
-          ) + 6,
+            Math.random() * 84
+          ) + 4,
 
         swayDuration:
           Math.floor(
@@ -1960,7 +2005,12 @@ export default function App() {
           ) + 3,
 
         delay:
-          Math.random() * 2,
+          Math.random() * 4,
+
+        // 飛距離をかなり長くする
+        travel:
+          125 +
+          Math.random() * 60,
 
         createdAt:
           Date.now()
@@ -1978,22 +2028,17 @@ export default function App() {
 
       await addDoc(
         bubblesRef,
-        newBubbleData
+        newBubble
       );
     };
 
 
   // =======================================================
-  // アニメーション終了
+  // Animation restart
   // =======================================================
 
   const handleAnimationEnd =
-    (id) => {
-
-      /*
-       * 停止中はbubbleRestなので
-       * ここには基本的に来ない。
-       */
+    id => {
 
       if (isPaused) {
         return;
@@ -2001,47 +2046,50 @@ export default function App() {
 
 
       setBubbles(
-        prev =>
-          prev.map(
-            b => {
+        previous =>
+
+          previous.map(
+            bubble => {
 
               if (
-                b.id === id
+                bubble.id !== id
               ) {
 
-                const depth =
-                  Math.random();
-
-
-                return {
-
-                  ...b,
-
-                  depth,
-
-                  left:
-                    Math.floor(
-                      Math.random() * 82
-                    ) + 6,
-
-                  size:
-                    Math.floor(
-                      depth * 160
-                    ) + 120,
-
-                  opacity:
-                    0.58 +
-                    depth * 0.42,
-
-                  zIndex:
-                    Math.floor(
-                      depth * 100
-                    )
-                };
+                return bubble;
               }
 
 
-              return b;
+              const depth =
+                Math.random();
+
+
+              return {
+                ...bubble,
+
+                depth,
+
+                left:
+                  Math.floor(
+                    Math.random() * 84
+                  ) + 4,
+
+                size:
+                  Math.floor(
+                    depth * 180
+                  ) + 180,
+
+                opacity:
+                  0.58 +
+                  depth * 0.42,
+
+                zIndex:
+                  Math.floor(
+                    depth * 100
+                  ),
+
+                delay:
+                  0
+              };
             }
           )
       );
@@ -2049,82 +2097,82 @@ export default function App() {
 
 
   // =======================================================
-  // 写真削除
+  // Delete
   // =======================================================
 
   const handleDeleteBubble =
-    async (id) => {
+    async id => {
 
-      const bubbleRef =
+      await deleteDoc(
         doc(
           db,
           'albums',
           albumKey,
           'bubbles',
           id
-        );
-
-
-      await deleteDoc(
-        bubbleRef
+        )
       );
     };
 
 
   // =======================================================
-  // 全削除
+  // Clear all
   // =======================================================
 
   const handleClearAll =
     async () => {
 
       if (
-        window.confirm(
+        !window.confirm(
           'このアルバムの写真をすべて削除しますか？'
         )
       ) {
 
-        const bubblesRef =
-          collection(
-            db,
-            'albums',
-            albumKey,
-            'bubbles'
-          );
-
-
-        const snapshot =
-          await getDocs(
-            bubblesRef
-          );
-
-
-        const batch =
-          writeBatch(db);
-
-
-        snapshot.docs.forEach(
-          docSnap => {
-
-            batch.delete(
-              docSnap.ref
-            );
-          }
-        );
-
-
-        await batch.commit();
-
-
-        setIsTocOpen(
-          false
-        );
+        return;
       }
+
+
+      const bubblesRef =
+        collection(
+          db,
+          'albums',
+          albumKey,
+          'bubbles'
+        );
+
+
+      const snapshot =
+        await getDocs(
+          bubblesRef
+        );
+
+
+      const batch =
+        writeBatch(
+          db
+        );
+
+
+      snapshot.docs.forEach(
+        docSnap => {
+
+          batch.delete(
+            docSnap.ref
+          );
+        }
+      );
+
+
+      await batch.commit();
+
+      setIsTocOpen(
+        false
+      );
     };
 
 
   // =======================================================
-  // 背景
+  // Background
   // =======================================================
 
   const getContainerStyle =
@@ -2139,12 +2187,9 @@ export default function App() {
       ) {
 
         backgroundStyle = {
-
           backgroundColor:
             albumSettings.bgColor
-
         };
-
 
       } else if (
         albumSettings.bgType ===
@@ -2162,9 +2207,7 @@ export default function App() {
 
           backgroundPosition:
             'center'
-
         };
-
 
       } else {
 
@@ -2172,48 +2215,40 @@ export default function App() {
 
           background:
             albumSettings.presetBg
-
         };
       }
 
 
       return {
-
         ...styles.container,
-
         ...backgroundStyle
-
       };
     };
 
 
   // =======================================================
-  // アバター表示
+  // Avatar render
   // =======================================================
 
   const renderAvatarIcon =
     (
-      avatarObj,
+      avatar,
       sizeStyle = {}
     ) => {
 
-      if (
-        !avatarObj
-      ) {
-
+      if (!avatar) {
         return null;
       }
 
 
       if (
-        avatarObj.type ===
+        avatar.type ===
         'image'
       ) {
 
         return (
-
           <img
-            src={avatarObj.url}
+            src={avatar.url}
             alt="avatar"
             style={{
               width: '100%',
@@ -2223,13 +2258,11 @@ export default function App() {
               ...sizeStyle
             }}
           />
-
         );
       }
 
 
       return (
-
         <span
           style={{
             fontSize:
@@ -2237,31 +2270,28 @@ export default function App() {
               '12px'
           }}
         >
-          {avatarObj.emoji}
+          {avatar.emoji}
         </span>
-
       );
     };
 
 
   // =======================================================
-  // ジャンルフィルター
+  // Filter
   // =======================================================
 
   const filteredBubbles =
     selectedGenre === 'すべて'
-
       ? bubbles
-
       : bubbles.filter(
-          b =>
-            b.genre ===
+          bubble =>
+            bubble.genre ===
             selectedGenre
         );
 
 
   // =======================================================
-  // 画面1：ログイン
+  // AUTH SCREEN
   // =======================================================
 
   if (
@@ -2353,6 +2383,7 @@ export default function App() {
             onSubmit={
               handleAuth
             }
+
             style={
               styles.form
             }
@@ -2369,8 +2400,10 @@ export default function App() {
 
                 <span
                   style={{
-                    color: '#ccc',
-                    fontSize: '12px'
+                    color:
+                      '#ccc',
+                    fontSize:
+                      '12px'
                   }}
                 >
                   アイコンを選択 / アップロード:
@@ -2385,17 +2418,17 @@ export default function App() {
 
                   {AVATARS.map(
                     (
-                      av,
-                      idx
+                      avatar,
+                      index
                     ) => (
 
                       <div
-                        key={idx}
+                        key={index}
 
                         onClick={() => {
 
                           setSelectedAvatarIdx(
-                            idx
+                            index
                           );
 
                           setCustomAvatar(
@@ -2407,19 +2440,19 @@ export default function App() {
                           ...styles.avatarBadge,
 
                           backgroundColor:
-                            av.bg,
+                            avatar.bg,
 
                           border:
-                            selectedAvatarIdx === idx
+                            selectedAvatarIdx ===
+                            index
 
                               ? '2px solid #fff'
 
                               : '2px solid transparent'
                         }}
                       >
-                        {av.emoji}
+                        {avatar.emoji}
                       </div>
-
                     )
                   )}
 
@@ -2441,8 +2474,6 @@ export default function App() {
                       overflow:
                         'hidden'
                     }}
-
-                    title="画像をアップロード"
                   >
 
                     {customAvatar ? (
@@ -2451,18 +2482,23 @@ export default function App() {
                         src={
                           customAvatar.url
                         }
+
                         alt="custom"
+
                         style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover'
+                          width:
+                            '100%',
+
+                          height:
+                            '100%',
+
+                          objectFit:
+                            'cover'
                         }}
                       />
 
                     ) : (
-
                       '📷'
-
                     )}
 
 
@@ -2485,7 +2521,6 @@ export default function App() {
                 </div>
 
               </div>
-
             )}
 
 
@@ -2551,7 +2586,7 @@ export default function App() {
 
 
   // =======================================================
-  // 画面2：メニュー
+  // MENU
   // =======================================================
 
   if (
@@ -2602,7 +2637,9 @@ export default function App() {
 
             <span>
               <strong>
-                {currentUser?.username}
+                {
+                  currentUser?.username
+                }
               </strong>
             </span>
 
@@ -2626,8 +2663,11 @@ export default function App() {
 
         <h2
           style={{
-            color: '#fff',
-            marginBottom: '30px'
+            color:
+              '#fff',
+
+            marginBottom:
+              '30px'
           }}
         >
           📖 アルバムを選択
@@ -2706,7 +2746,8 @@ export default function App() {
               }
 
               style={{
-                width: '100%'
+                width:
+                  '100%'
               }}
             >
 
@@ -2764,7 +2805,7 @@ export default function App() {
 
 
   // =======================================================
-  // 画面3：アルバム
+  // ALBUM
   // =======================================================
 
   return (
@@ -2775,9 +2816,9 @@ export default function App() {
       }
     >
 
-      {/* ==================================================
-          ヘッダー
-      ================================================== */}
+      {/* ===============================================
+          HEADER
+      =============================================== */}
 
       <div
         style={
@@ -2813,16 +2854,10 @@ export default function App() {
           >
             {activeTab ===
             'private'
-
               ? '🔒 プライベート'
-
               : `🌐 共有ルーム [${roomNumber}]`}
           </div>
 
-
-          {/* =================================================
-              メンバー
-          ================================================= */}
 
           {activeTab ===
             'shared' && (
@@ -2839,10 +2874,7 @@ export default function App() {
                     '11px',
 
                   color:
-                    '#ccc',
-
-                  marginRight:
-                    '4px'
+                    '#ccc'
                 }}
               >
                 参加中:
@@ -2851,12 +2883,12 @@ export default function App() {
 
               {roomMembers.map(
                 (
-                  m,
-                  i
+                  member,
+                  index
                 ) => (
 
                   <div
-                    key={i}
+                    key={index}
                     style={
                       styles.memberTag
                     }
@@ -2867,12 +2899,12 @@ export default function App() {
                         ...styles.avatarBadgeSmall,
 
                         backgroundColor:
-                          m.avatar?.bg ||
+                          member.avatar?.bg ||
                           'transparent'
                       }}
                     >
                       {renderAvatarIcon(
-                        m.avatar
+                        member.avatar
                       )}
                     </div>
 
@@ -2881,22 +2913,48 @@ export default function App() {
                         styles.memberName
                       }
                     >
-                      {m.username}
+                      {
+                        member.username
+                      }
                     </span>
 
                   </div>
-
                 )
               )}
 
             </div>
-
           )}
 
 
-          {/* =================================================
-              目次
-          ================================================= */}
+          {/* 一時停止 */}
+
+          <button
+            style={{
+              ...styles.pauseBtn,
+
+              backgroundColor:
+                isPaused
+                  ? '#ffc107'
+                  : 'rgba(255,255,255,0.18)',
+
+              color:
+                isPaused
+                  ? '#111'
+                  : '#fff'
+            }}
+
+            onClick={() =>
+              setIsPaused(
+                previous =>
+                  !previous
+              )
+            }
+          >
+            {isPaused
+              ? '▶ 再生'
+              : '⏸ 停止'}
+          </button>
+
 
           <button
             style={
@@ -2905,7 +2963,8 @@ export default function App() {
 
             onClick={() =>
               setIsTocOpen(
-                !isTocOpen
+                previous =>
+                  !previous
               )
             }
           >
@@ -2913,48 +2972,24 @@ export default function App() {
           </button>
 
 
-          {/* =================================================
-              停止ボタン
-          ================================================= */}
-
-          <button
-            style={{
-              ...styles.pauseBtn,
-
-              backgroundColor:
-                isPaused
-                  ? '#007bff'
-                  : 'rgba(255,255,255,0.20)'
-            }}
-
-            onClick={() =>
-              setIsPaused(
-                prev =>
-                  !prev
-              )
-            }
-          >
-            {isPaused
-              ? '▶ 再生'
-              : 'Ⅱ 停止'}
-          </button>
-
-
-          {/* =================================================
-              写真追加
-          ================================================= */}
-
           <label
             style={
               styles.uploadBtn
             }
           >
-            ＋ 写真を追加
+
+            {isDetectingFace
+              ? '👤 顔を確認中...'
+              : '＋ 写真を追加'}
 
             <input
               type="file"
               accept="image/*"
               multiple
+
+              disabled={
+                isDetectingFace
+              }
 
               onChange={
                 handleImageUpload
@@ -2965,14 +3000,13 @@ export default function App() {
                   'none'
               }}
             />
+
           </label>
 
         </div>
 
 
-        {/* ==================================================
-            ジャンル
-        ================================================== */}
+        {/* ジャンル */}
 
         <div
           style={
@@ -2990,39 +3024,38 @@ export default function App() {
 
 
           {genres.map(
-            g => (
+            genre => (
 
               <button
-                key={g}
+                key={genre}
 
                 style={{
                   ...styles.genreTabBtn,
 
                   backgroundColor:
-                    selectedGenre === g
-
+                    selectedGenre ===
+                    genre
                       ? '#007bff'
-
                       : 'rgba(255,255,255,0.15)',
 
                   color:
                     '#fff',
 
                   fontWeight:
-                    selectedGenre === g
+                    selectedGenre ===
+                    genre
                       ? 'bold'
                       : 'normal'
                 }}
 
                 onClick={() =>
                   setSelectedGenre(
-                    g
+                    genre
                   )
                 }
               >
-                {g}
+                {genre}
               </button>
-
             )
           )}
 
@@ -3044,9 +3077,9 @@ export default function App() {
       </div>
 
 
-      {/* ==================================================
-          目次パネル
-      ================================================== */}
+      {/* ===============================================
+          TOC
+      =============================================== */}
 
       <div
         style={{
@@ -3104,23 +3137,14 @@ export default function App() {
               borderBottom:
                 tocActiveTab ===
                 'photos'
-
                   ? '2px solid #007bff'
                   : 'none',
 
               color:
                 tocActiveTab ===
                 'photos'
-
                   ? '#fff'
-                  : '#888',
-
-              fontWeight:
-                tocActiveTab ===
-                'photos'
-
-                  ? 'bold'
-                  : 'normal'
+                  : '#888'
             }}
 
             onClick={() =>
@@ -3129,9 +3153,9 @@ export default function App() {
               )
             }
           >
-            📷 写真一覧 (
-            {filteredBubbles.length}
-            )
+            📷 写真一覧 ({
+              filteredBubbles.length
+            })
           </button>
 
 
@@ -3142,23 +3166,14 @@ export default function App() {
               borderBottom:
                 tocActiveTab ===
                 'settings'
-
                   ? '2px solid #007bff'
                   : 'none',
 
               color:
                 tocActiveTab ===
                 'settings'
-
                   ? '#fff'
-                  : '#888',
-
-              fontWeight:
-                tocActiveTab ===
-                'settings'
-
-                  ? 'bold'
-                  : 'normal'
+                  : '#888'
             }}
 
             onClick={() =>
@@ -3179,18 +3194,12 @@ export default function App() {
           }
         >
 
-          {/* =================================================
-              写真一覧
-          ================================================= */}
+          {/* 写真 */}
 
           {tocActiveTab ===
             'photos' && (
 
-            <div
-              style={
-                styles.tocListContainer
-              }
-            >
+            <div>
 
               <div
                 style={
@@ -3203,7 +3212,9 @@ export default function App() {
                     styles.settingLabel
                   }
                 >
-                  📷 [{selectedGenre}] の写真
+                  📷 [
+                  {selectedGenre}
+                  ] の写真
                 </span>
 
 
@@ -3221,7 +3232,6 @@ export default function App() {
                   >
                     すべて削除
                   </button>
-
                 )}
 
               </div>
@@ -3248,20 +3258,28 @@ export default function App() {
 
                   {filteredBubbles.map(
                     (
-                      b,
-                      idx
+                      bubble,
+                      index
                     ) => (
 
                       <div
-                        key={b.id}
+                        key={
+                          bubble.id
+                        }
+
                         style={
                           styles.thumbCard
                         }
                       >
 
                         <img
-                          src={b.src}
-                          alt={`photo-${idx}`}
+                          src={
+                            bubble.src
+                          }
+
+                          alt={
+                            `photo-${index}`
+                          }
 
                           style={
                             styles.thumbImg
@@ -3269,7 +3287,7 @@ export default function App() {
 
                           onClick={() =>
                             setSelectedImage(
-                              b.src
+                              bubble.src
                             )
                           }
                         />
@@ -3286,23 +3304,24 @@ export default function App() {
                               ...styles.avatarBadgeSmall,
 
                               backgroundColor:
-                                b.authorAvatar?.bg ||
+                                bubble.authorAvatar?.bg ||
                                 'transparent'
                             }}
                           >
                             {renderAvatarIcon(
-                              b.authorAvatar
+                              bubble.authorAvatar
                             )}
                           </div>
-
 
                           <span
                             style={
                               styles.thumbAuthorText
                             }
                           >
-                            {b.author ||
-                              '不明'}
+                            {
+                              bubble.author ||
+                              '不明'
+                            }
                           </span>
 
                         </div>
@@ -3315,7 +3334,7 @@ export default function App() {
 
                           onClick={() =>
                             handleDeleteBubble(
-                              b.id
+                              bubble.id
                             )
                           }
                         >
@@ -3323,31 +3342,22 @@ export default function App() {
                         </button>
 
                       </div>
-
                     )
                   )}
 
                 </div>
-
               )}
 
             </div>
-
           )}
 
 
-          {/* =================================================
-              設定
-          ================================================= */}
+          {/* 設定 */}
 
           {tocActiveTab ===
             'settings' && (
 
             <div>
-
-              {/* ---------------------------------------------
-                  背景
-              --------------------------------------------- */}
 
               <div
                 style={
@@ -3360,7 +3370,7 @@ export default function App() {
                     styles.settingLabel
                   }
                 >
-                  🎨 背景スタイルの変更
+                  🎨 背景スタイル
                 </div>
 
 
@@ -3375,13 +3385,13 @@ export default function App() {
                       ...styles.presetBtn,
 
                       background:
-                        'linear-gradient(180deg, #0f2027, #2c5364)'
+                        'linear-gradient(180deg,#0f2027,#2c5364)'
                     }}
 
                     onClick={() =>
                       updateSettings({
                         presetBg:
-                          'linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)',
+                          'linear-gradient(180deg,#0f2027 0%,#203a43 50%,#2c5364 100%)',
 
                         bgType:
                           'preset'
@@ -3395,13 +3405,13 @@ export default function App() {
                       ...styles.presetBtn,
 
                       background:
-                        'linear-gradient(180deg, #1a2a6c, #b21f1f, #fdbb2d)'
+                        'linear-gradient(180deg,#1a2a6c,#b21f1f,#fdbb2d)'
                     }}
 
                     onClick={() =>
                       updateSettings({
                         presetBg:
-                          'linear-gradient(180deg, #1a2a6c 0%, #b21f1f 50%, #fdbb2d 100%)',
+                          'linear-gradient(180deg,#1a2a6c 0%,#b21f1f 50%,#fdbb2d 100%)',
 
                         bgType:
                           'preset'
@@ -3415,13 +3425,13 @@ export default function App() {
                       ...styles.presetBtn,
 
                       background:
-                        'linear-gradient(180deg, #130cb7, #52e5e7)'
+                        'linear-gradient(180deg,#130cb7,#52e5e7)'
                     }}
 
                     onClick={() =>
                       updateSettings({
                         presetBg:
-                          'linear-gradient(180deg, #130cb7 0%, #52e5e7 100%)',
+                          'linear-gradient(180deg,#130cb7 0%,#52e5e7 100%)',
 
                         bgType:
                           'preset'
@@ -3463,7 +3473,7 @@ export default function App() {
                       styles.subLabel
                     }
                   >
-                    カラー単色指定:
+                    カラー単色:
                   </span>
 
 
@@ -3528,9 +3538,7 @@ export default function App() {
               </div>
 
 
-              {/* ---------------------------------------------
-                  速度
-              --------------------------------------------- */}
+              {/* スピード */}
 
               <div
                 style={
@@ -3543,7 +3551,7 @@ export default function App() {
                     styles.settingLabel
                   }
                 >
-                  🫧 浮遊スピードの設定
+                  🫧 浮遊スピード
                 </div>
 
 
@@ -3620,60 +3628,20 @@ export default function App() {
               </div>
 
 
-              {/* ---------------------------------------------
-                  停止状態
-              --------------------------------------------- */}
+              {/* 顔検出説明 */}
 
               <div
                 style={
-                  styles.settingSection
+                  styles.faceInfo
                 }
               >
-
-                <div
-                  style={
-                    styles.settingLabel
-                  }
-                >
-                  ⏸️ シャボン玉の停止
-                </div>
-
-
-                <button
-                  style={{
-                    ...styles.pauseSettingBtn,
-
-                    backgroundColor:
-                      isPaused
-                        ? '#007bff'
-                        : '#444'
-                  }}
-
-                  onClick={() =>
-                    setIsPaused(
-                      prev =>
-                        !prev
-                    )
-                  }
-                >
-                  {isPaused
-                    ? '▶ 浮遊を再開'
-                    : 'Ⅱ その場で停止'}
-                </button>
-
-
-                <p
-                  style={
-                    styles.settingDescription
-                  }
-                >
-                  停止するとシャボン玉はその場に浮いたまま、ほんの少しだけ揺れ続けます。
-                </p>
-
+                👤 人物写真では顔を検出して、
+                顔周辺の歪みを弱めています。
+                <br />
+                風景写真は通常の球面屈折になります。
               </div>
 
             </div>
-
           )}
 
         </div>
@@ -3681,9 +3649,9 @@ export default function App() {
       </div>
 
 
-      {/* ==================================================
-          写真なし
-      ================================================== */}
+      {/* ===============================================
+          Empty
+      =============================================== */}
 
       {filteredBubbles.length ===
         0 && (
@@ -3693,20 +3661,18 @@ export default function App() {
             styles.emptyText
           }
         >
-
-          【{selectedGenre}】ジャンルの写真はありません
+          【
+          {selectedGenre}
+          】ジャンルの写真はありません
           <br />
-
-          「＋ 写真を追加」から選択中のジャンルに画像を追加できます✨
-
+          「＋ 写真を追加」から画像を追加できます✨
         </div>
-
       )}
 
 
-      {/* ==================================================
-          シャボン玉ステージ
-      ================================================== */}
+      {/* ===============================================
+          BUBBLE STAGE
+      =============================================== */}
 
       <div
         style={
@@ -3715,89 +3681,74 @@ export default function App() {
       >
 
         {filteredBubbles.map(
-          b => {
+          bubble => {
 
             const duration =
               Math.floor(
                 (
                   1.15 -
                   (
-                    b.depth ||
+                    bubble.depth ||
                     0.5
-                  ) * 0.30
+                  ) *
+                    0.35
                 ) *
-                getBaseDuration()
+                  getBaseDuration()
               );
+
+
+            const travel =
+              bubble.travel ||
+              150;
 
 
             return (
 
               <div
-                key={b.id}
+                key={
+                  bubble.id
+                }
 
                 onClick={() =>
                   setSelectedImage(
-                    b.src
+                    bubble.src
                   )
                 }
 
                 onAnimationEnd={() =>
                   handleAnimationEnd(
-                    b.id
+                    bubble.id
                   )
                 }
 
                 style={{
-
                   ...styles.bubbleWrapper,
 
                   left:
-                    `${b.left}%`,
+                    `${bubble.left}%`,
 
                   width:
-                    `${b.size}px`,
+                    `${bubble.size}px`,
 
                   height:
-                    `${b.size}px`,
+                    `${bubble.size}px`,
 
                   zIndex:
-                    b.zIndex,
+                    bubble.zIndex,
 
                   opacity:
-                    b.opacity,
+                    bubble.opacity,
 
                   animation:
+                    `floatUp ${duration}s linear ${bubble.delay}s infinite, sway ${bubble.swayDuration}s ease-in-out infinite alternate`,
 
+                  animationPlayState:
                     isPaused
+                      ? 'paused'
+                      : 'running',
 
-                      ? `
-                        bubbleRest
-                        ${(
-                          b.swayDuration ||
-                          4
-                        ) * 2.5}s
-                        ease-in-out
-                        infinite
-                        alternate
-                      `
-
-                      : `
-                        floatUp
-                        ${duration}s
-                        linear
-                        ${b.delay || 0}s
-                        infinite,
-
-                        sway
-                        ${b.swayDuration || 4}s
-                        ease-in-out
-                        infinite
-                        alternate
-                      `,
-
-                  transformOrigin:
-                    'center center'
-
+                  '--travel':
+                    `${travel}vh`
                 }}
               >
 
@@ -3808,34 +3759,49 @@ export default function App() {
                 >
 
                   <BubbleCanvas
-                    src={b.src}
-                    size={b.size}
+                    src={
+                      bubble.src
+                    }
+
+                    size={
+                      bubble.size
+                    }
+
+                    faces={
+                      bubble.faces ||
+                      []
+                    }
+
+                    paused={
+                      isPaused
+                    }
                   />
 
 
-                  {/* 投稿者 */}
-                  {b.authorAvatar && (
+                  {/* 作者 */}
+
+                  {bubble.authorAvatar && (
 
                     <div
-                      title={`${b.author} (${b.genre || '未分類'})`}
+                      title={
+                        `${bubble.author} (${bubble.genre || '未分類'})`
+                      }
 
                       style={{
                         ...styles.bubbleAuthorBadge,
 
                         backgroundColor:
-                          b.authorAvatar.bg ||
-                          'rgba(0,0,0,0.5)'
+                          bubble.authorAvatar.bg ||
+                          'transparent'
                       }}
                     >
-
                       {renderAvatarIcon(
-                        b.authorAvatar,
+                        bubble.authorAvatar,
                         {
                           fontSize:
                             '10px'
                         }
                       )}
-
                     </div>
 
                   )}
@@ -3843,7 +3809,6 @@ export default function App() {
                 </div>
 
               </div>
-
             );
           }
         )}
@@ -3851,9 +3816,9 @@ export default function App() {
       </div>
 
 
-      {/* ==================================================
-          写真モーダル
-      ================================================== */}
+      {/* ===============================================
+          MODAL
+      =============================================== */}
 
       {selectedImage && (
 
@@ -3909,13 +3874,12 @@ export default function App() {
           </div>
 
         </div>
-
       )}
 
 
-      {/* ==================================================
-          アニメーション
-      ================================================== */}
+      {/* ===============================================
+          Animation
+      =============================================== */}
 
       <style>{`
 
@@ -3923,22 +3887,13 @@ export default function App() {
 
           0% {
             transform:
-              translate3d(
-                0,
-                110vh,
-                0
-              );
+              translateY(115vh);
           }
 
           100% {
             transform:
-              translate3d(
-                0,
-                -300px,
-                0
-              );
+              translateY(-300px);
           }
-
         }
 
 
@@ -3951,144 +3906,38 @@ export default function App() {
 
           50% {
             margin-left:
-              5px;
+              10px;
           }
 
           100% {
             margin-left:
-              25px;
+              30px;
           }
-
         }
 
 
-        /*
-         * 停止中
-         *
-         * 完全停止ではなく
-         * その場で水中のように
-         * ゆっくり揺れる
-         */
-
-        @keyframes bubbleRest {
-
-          0% {
-
-            transform:
-              translate3d(
-                -4px,
-                -4px,
-                0
-              )
-              rotate(
-                -1deg
-              )
-              scale(
-                1
-              );
-
-          }
-
-          25% {
-
-            transform:
-              translate3d(
-                2px,
-                -1px,
-                0
-              )
-              rotate(
-                0.5deg
-              )
-              scale(
-                1.008
-              );
-
-          }
-
-          50% {
-
-            transform:
-              translate3d(
-                4px,
-                3px,
-                0
-              )
-              rotate(
-                1deg
-              )
-              scale(
-                1.015
-              );
-
-          }
-
-          75% {
-
-            transform:
-              translate3d(
-                -2px,
-                4px,
-                0
-              )
-              rotate(
-                -0.5deg
-              )
-              scale(
-                1.008
-              );
-
-          }
-
-          100% {
-
-            transform:
-              translate3d(
-                -4px,
-                -2px,
-                0
-              )
-              rotate(
-                -1deg
-              )
-              scale(
-                1
-              );
-
-          }
-
+        * {
+          box-sizing:
+            border-box;
         }
 
 
-        /*
-         * ボタンのホバー
-         */
+        body {
+          margin:
+            0;
 
-        button:hover {
-          filter:
-            brightness(1.12);
-        }
+          overflow:
+            hidden;
 
-
-        /*
-         * スクロールバー
-         */
-
-        ::-webkit-scrollbar {
-          width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
           background:
-            rgba(255,255,255,0.03);
+            #0f2027;
         }
 
-        ::-webkit-scrollbar-thumb {
-          background:
-            rgba(255,255,255,0.20);
 
-          border-radius:
-            10px;
+        button,
+        input {
+          font-family:
+            sans-serif;
         }
 
       `}</style>
@@ -4099,17 +3948,16 @@ export default function App() {
 
 
 // =========================================================
-// 5. スタイル
+// 12. Styles
 // =========================================================
 
 const styles = {
 
-  // =======================================================
+  // -------------------------------------------------------
   // Auth
-  // =======================================================
+  // -------------------------------------------------------
 
   authContainer: {
-
     width:
       '100vw',
 
@@ -4117,7 +3965,7 @@ const styles = {
       '100vh',
 
     background:
-      'linear-gradient(135deg, #111e2e, #0a1118)',
+      'linear-gradient(135deg,#111e2e,#0a1118)',
 
     display:
       'flex',
@@ -4130,12 +3978,10 @@ const styles = {
 
     fontFamily:
       'sans-serif'
-
   },
 
 
   authCard: {
-
     backgroundColor:
       'rgba(255,255,255,0.05)',
 
@@ -4159,12 +4005,10 @@ const styles = {
 
     textAlign:
       'center'
-
   },
 
 
   appTitle: {
-
     color:
       '#fff',
 
@@ -4173,12 +4017,10 @@ const styles = {
 
     marginBottom:
       '20px'
-
   },
 
 
   authTabGroup: {
-
     display:
       'flex',
 
@@ -4187,12 +4029,10 @@ const styles = {
 
     marginBottom:
       '20px'
-
   },
 
 
   authTabBtn: {
-
     background:
       'none',
 
@@ -4210,12 +4050,10 @@ const styles = {
 
     fontWeight:
       'bold'
-
   },
 
 
   form: {
-
     display:
       'flex',
 
@@ -4224,12 +4062,10 @@ const styles = {
 
     gap:
       '12px'
-
   },
 
 
   avatarPickerSection: {
-
     display:
       'flex',
 
@@ -4241,12 +4077,10 @@ const styles = {
 
     marginBottom:
       '8px'
-
   },
 
 
   avatarGrid: {
-
     display:
       'flex',
 
@@ -4258,12 +4092,10 @@ const styles = {
 
     flexWrap:
       'wrap'
-
   },
 
 
   avatarBadge: {
-
     width:
       '36px',
 
@@ -4286,16 +4118,11 @@ const styles = {
       'pointer',
 
     fontSize:
-      '18px',
-
-    boxSizing:
-      'border-box'
-
+      '18px'
   },
 
 
   avatarBadgeSmall: {
-
     width:
       '22px',
 
@@ -4319,12 +4146,10 @@ const styles = {
 
     flexShrink:
       0
-
   },
 
 
   input: {
-
     padding:
       '10px 12px',
 
@@ -4345,12 +4170,10 @@ const styles = {
 
     outline:
       'none'
-
   },
 
 
   submitBtn: {
-
     padding:
       '10px',
 
@@ -4377,16 +4200,14 @@ const styles = {
 
     marginTop:
       '10px'
-
   },
 
 
-  // =======================================================
+  // -------------------------------------------------------
   // Menu
-  // =======================================================
+  // -------------------------------------------------------
 
   menuContainer: {
-
     width:
       '100vw',
 
@@ -4394,7 +4215,7 @@ const styles = {
       '100vh',
 
     background:
-      'linear-gradient(135deg, #0f2027, #2c5364)',
+      'linear-gradient(135deg,#0f2027,#2c5364)',
 
     display:
       'flex',
@@ -4412,16 +4233,11 @@ const styles = {
       'sans-serif',
 
     position:
-      'relative',
-
-    overflow:
-      'hidden'
-
+      'relative'
   },
 
 
   menuHeader: {
-
     position:
       'absolute',
 
@@ -4445,12 +4261,10 @@ const styles = {
 
     alignItems:
       'center'
-
   },
 
 
   logoutBtn: {
-
     backgroundColor:
       'rgba(255,255,255,0.2)',
 
@@ -4471,12 +4285,10 @@ const styles = {
 
     fontSize:
       '11px'
-
   },
 
 
   menuGrid: {
-
     display:
       'flex',
 
@@ -4488,12 +4300,10 @@ const styles = {
 
     justifyContent:
       'center'
-
   },
 
 
   menuCard: {
-
     backgroundColor:
       'rgba(255,255,255,0.08)',
 
@@ -4526,23 +4336,19 @@ const styles = {
 
     textAlign:
       'center'
-
   },
 
 
   cardIcon: {
-
     fontSize:
       '40px',
 
     marginBottom:
       '10px'
-
   },
 
 
   enterBtn: {
-
     padding:
       '8px 20px',
 
@@ -4572,16 +4378,14 @@ const styles = {
 
     width:
       '100%'
-
   },
 
 
-  // =======================================================
+  // -------------------------------------------------------
   // Album
-  // =======================================================
+  // -------------------------------------------------------
 
   container: {
-
     width:
       '100vw',
 
@@ -4599,12 +4403,10 @@ const styles = {
 
     transition:
       'background 0.5s ease'
-
   },
 
 
   header: {
-
     position:
       'absolute',
 
@@ -4612,9 +4414,6 @@ const styles = {
       '15px',
 
     left:
-      '15px',
-
-    right:
       '15px',
 
     zIndex:
@@ -4629,33 +4428,29 @@ const styles = {
     gap:
       '10px',
 
-    pointerEvents:
-      'auto'
-
+    maxWidth:
+      'calc(100vw - 30px)'
   },
 
 
   topControlRow: {
-
     display:
       'flex',
 
     gap:
-      '10px',
+      '8px',
 
     alignItems:
       'center',
 
     flexWrap:
       'wrap'
-
   },
 
 
   backMenuBtn: {
-
     padding:
-      '6px 12px',
+      '7px 12px',
 
     backgroundColor:
       'rgba(255,255,255,0.2)',
@@ -4677,14 +4472,12 @@ const styles = {
 
     backdropFilter:
       'blur(5px)'
-
   },
 
 
   badge: {
-
     padding:
-      '6px 12px',
+      '7px 12px',
 
     backgroundColor:
       'rgba(0,0,0,0.4)',
@@ -4696,16 +4489,32 @@ const styles = {
       '#fff',
 
     fontSize:
+      '12px'
+  },
+
+
+  pauseBtn: {
+    padding:
+      '7px 12px',
+
+    border:
+      'none',
+
+    borderRadius:
+      '15px',
+
+    fontSize:
       '12px',
 
-    backdropFilter:
-      'blur(5px)'
+    cursor:
+      'pointer',
 
+    fontWeight:
+      'bold'
   },
 
 
   membersBar: {
-
     display:
       'flex',
 
@@ -4723,12 +4532,10 @@ const styles = {
 
     borderRadius:
       '15px'
-
   },
 
 
   memberTag: {
-
     display:
       'flex',
 
@@ -4746,25 +4553,21 @@ const styles = {
 
     borderRadius:
       '10px'
-
   },
 
 
   memberName: {
-
     fontSize:
       '10px',
 
     color:
       '#fff'
-
   },
 
 
   tocToggleBtn: {
-
     padding:
-      '6px 12px',
+      '7px 12px',
 
     backgroundColor:
       '#6c757d',
@@ -4783,43 +4586,12 @@ const styles = {
 
     cursor:
       'pointer'
-
-  },
-
-
-  pauseBtn: {
-
-    padding:
-      '6px 12px',
-
-    border:
-      'none',
-
-    borderRadius:
-      '15px',
-
-    color:
-      '#fff',
-
-    fontSize:
-      '12px',
-
-    cursor:
-      'pointer',
-
-    backdropFilter:
-      'blur(5px)',
-
-    fontWeight:
-      'bold'
-
   },
 
 
   uploadBtn: {
-
     padding:
-      '6px 12px',
+      '7px 12px',
 
     backgroundColor:
       '#28a745',
@@ -4838,16 +4610,10 @@ const styles = {
 
     fontWeight:
       'bold'
-
   },
 
 
-  // =======================================================
-  // Genre
-  // =======================================================
-
   genreTabBar: {
-
     display:
       'flex',
 
@@ -4859,28 +4625,21 @@ const styles = {
 
     flexWrap:
       'wrap'
-
   },
 
 
   genreLabel: {
-
     color:
       '#fff',
 
     fontSize:
-      '12px',
-
-    marginRight:
-      '4px'
-
+      '12px'
   },
 
 
   genreTabBtn: {
-
     padding:
-      '4px 10px',
+      '5px 10px',
 
     border:
       'none',
@@ -4893,14 +4652,12 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
   addGenreBtn: {
-
     padding:
-      '4px 10px',
+      '5px 10px',
 
     backgroundColor:
       'rgba(255,255,255,0.2)',
@@ -4919,16 +4676,14 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
-  // =======================================================
-  // Bubble
-  // =======================================================
+  // -------------------------------------------------------
+  // Stage
+  // -------------------------------------------------------
 
   stage: {
-
     width:
       '100%',
 
@@ -4940,32 +4695,25 @@ const styles = {
 
     overflow:
       'hidden'
-
   },
 
 
   bubbleWrapper: {
-
     position:
       'absolute',
 
     bottom:
-      '-180px',
+      '-220px',
 
     cursor:
       'pointer',
 
     willChange:
-      'transform',
-
-    transformOrigin:
-      'center center'
-
+      'transform'
   },
 
 
   bubbleGlass: {
-
     position:
       'relative',
 
@@ -4979,16 +4727,11 @@ const styles = {
       '50%',
 
     filter:
-      'drop-shadow(0 10px 22px rgba(0,0,0,0.35))',
-
-    overflow:
-      'visible'
-
+      'drop-shadow(0 12px 22px rgba(0,0,0,0.30))'
   },
 
 
   bubbleAuthorBadge: {
-
     position:
       'absolute',
 
@@ -4999,10 +4742,10 @@ const styles = {
       '4px',
 
     width:
-      '22px',
+      '24px',
 
     height:
-      '22px',
+      '24px',
 
     borderRadius:
       '50%',
@@ -5017,22 +4760,17 @@ const styles = {
       'center',
 
     boxShadow:
-      '0 2px 5px rgba(0,0,0,0.5)',
+      '0 2px 6px rgba(0,0,0,0.5)',
 
     zIndex:
       10,
 
-    overflow:
-      'hidden',
-
     border:
-      '1px solid rgba(255,255,255,0.7)'
-
+      '1px solid rgba(255,255,255,0.6)'
   },
 
 
   emptyText: {
-
     position:
       'absolute',
 
@@ -5043,7 +4781,7 @@ const styles = {
       '50%',
 
     transform:
-      'translate(-50%, -50%)',
+      'translate(-50%,-50%)',
 
     color:
       'rgba(255,255,255,0.6)',
@@ -5058,20 +4796,15 @@ const styles = {
       'none',
 
     lineHeight:
-      '1.6',
-
-    zIndex:
-      20
-
+      '1.6'
   },
 
 
-  // =======================================================
+  // -------------------------------------------------------
   // TOC
-  // =======================================================
+  // -------------------------------------------------------
 
   tocPanel: {
-
     position:
       'absolute',
 
@@ -5088,7 +4821,7 @@ const styles = {
       '100%',
 
     backgroundColor:
-      'rgba(20,20,20,0.95)',
+      'rgba(20,20,20,0.96)',
 
     backdropFilter:
       'blur(10px)',
@@ -5113,12 +4846,10 @@ const styles = {
 
     flexDirection:
       'column'
-
   },
 
 
   tocHeader: {
-
     display:
       'flex',
 
@@ -5130,23 +4861,19 @@ const styles = {
 
     marginBottom:
       '15px'
-
   },
 
 
   tocTitle: {
-
     fontSize:
       '16px',
 
     margin:
       0
-
   },
 
 
   closeTocBtn: {
-
     background:
       'none',
 
@@ -5161,12 +4888,10 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
   tocTabGroup: {
-
     display:
       'flex',
 
@@ -5175,12 +4900,10 @@ const styles = {
 
     marginBottom:
       '15px'
-
   },
 
 
   tocTabBtn: {
-
     flex:
       1,
 
@@ -5198,31 +4921,19 @@ const styles = {
 
     fontSize:
       '12px'
-
   },
 
 
   tocContent: {
-
     flex:
       1,
 
     overflowY:
       'auto'
-
-  },
-
-
-  tocListContainer: {
-
-    paddingBottom:
-      '20px'
-
   },
 
 
   listHeader: {
-
     display:
       'flex',
 
@@ -5234,12 +4945,10 @@ const styles = {
 
     marginBottom:
       '10px'
-
   },
 
 
   emptyTocText: {
-
     fontSize:
       '12px',
 
@@ -5251,26 +4960,22 @@ const styles = {
 
     marginTop:
       '20px'
-
   },
 
 
   thumbGrid: {
-
     display:
       'grid',
 
     gridTemplateColumns:
-      'repeat(2, 1fr)',
+      'repeat(2,1fr)',
 
     gap:
       '10px'
-
   },
 
 
   thumbCard: {
-
     backgroundColor:
       'rgba(255,255,255,0.05)',
 
@@ -5288,17 +4993,15 @@ const styles = {
 
     gap:
       '4px'
-
   },
 
 
   thumbImg: {
-
     width:
       '100%',
 
     height:
-      '90px',
+      '80px',
 
     objectFit:
       'cover',
@@ -5308,12 +5011,10 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
   thumbAuthorBox: {
-
     display:
       'flex',
 
@@ -5322,12 +5023,10 @@ const styles = {
 
     gap:
       '4px'
-
   },
 
 
   thumbAuthorText: {
-
     fontSize:
       '10px',
 
@@ -5342,12 +5041,10 @@ const styles = {
 
     whiteSpace:
       'nowrap'
-
   },
 
 
   deleteThumbBtn: {
-
     backgroundColor:
       '#dc3545',
 
@@ -5368,12 +5065,10 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
   clearAllBtn: {
-
     backgroundColor:
       '#dc3545',
 
@@ -5394,24 +5089,20 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
-  // =======================================================
+  // -------------------------------------------------------
   // Settings
-  // =======================================================
+  // -------------------------------------------------------
 
   settingSection: {
-
     marginBottom:
-      '20px'
-
+      '22px'
   },
 
 
   settingLabel: {
-
     fontSize:
       '12px',
 
@@ -5423,40 +5114,19 @@ const styles = {
 
     color:
       '#ddd'
-
   },
 
 
   subLabel: {
-
     fontSize:
       '11px',
 
     color:
       '#aaa'
-
-  },
-
-
-  settingDescription: {
-
-    fontSize:
-      '10px',
-
-    color:
-      '#888',
-
-    lineHeight:
-      '1.6',
-
-    marginTop:
-      '8px'
-
   },
 
 
   presetGroup: {
-
     display:
       'flex',
 
@@ -5465,17 +5135,15 @@ const styles = {
 
     marginBottom:
       '10px'
-
   },
 
 
   presetBtn: {
-
     width:
-      '30px',
+      '34px',
 
     height:
-      '30px',
+      '34px',
 
     borderRadius:
       '50%',
@@ -5485,12 +5153,10 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
   colorPickerRow: {
-
     display:
       'flex',
 
@@ -5499,17 +5165,15 @@ const styles = {
 
     gap:
       '10px'
-
   },
 
 
   colorInput: {
-
     border:
       'none',
 
     width:
-      '30px',
+      '34px',
 
     height:
       '30px',
@@ -5519,17 +5183,15 @@ const styles = {
 
     background:
       'none'
-
   },
 
 
   bgUploadBtn: {
-
     display:
       'inline-block',
 
     padding:
-      '6px 12px',
+      '7px 12px',
 
     backgroundColor:
       '#333',
@@ -5548,23 +5210,19 @@ const styles = {
 
     color:
       '#fff'
-
   },
 
 
   speedGroup: {
-
     display:
       'flex',
 
     gap:
       '6px'
-
   },
 
 
   speedBtn: {
-
     flex:
       1,
 
@@ -5575,7 +5233,7 @@ const styles = {
       '#fff',
 
     padding:
-      '6px',
+      '7px',
 
     borderRadius:
       '4px',
@@ -5585,45 +5243,38 @@ const styles = {
 
     cursor:
       'pointer'
-
   },
 
 
-  pauseSettingBtn: {
+  faceInfo: {
+    padding:
+      '10px',
 
-    width:
-      '100%',
+    backgroundColor:
+      'rgba(0,123,255,0.12)',
 
     border:
-      'none',
-
-    color:
-      '#fff',
-
-    padding:
-      '9px',
+      '1px solid rgba(0,123,255,0.25)',
 
     borderRadius:
       '6px',
 
+    color:
+      '#9ecfff',
+
     fontSize:
-      '12px',
+      '10px',
 
-    cursor:
-      'pointer',
-
-    fontWeight:
-      'bold'
-
+    lineHeight:
+      '1.6'
   },
 
 
-  // =======================================================
+  // -------------------------------------------------------
   // Modal
-  // =======================================================
+  // -------------------------------------------------------
 
   modalOverlay: {
-
     position:
       'fixed',
 
@@ -5652,19 +5303,11 @@ const styles = {
       'center',
 
     zIndex:
-      300,
-
-    padding:
-      '20px',
-
-    boxSizing:
-      'border-box'
-
+      300
   },
 
 
   modalCard: {
-
     backgroundColor:
       '#111',
 
@@ -5691,12 +5334,10 @@ const styles = {
 
     gap:
       '10px'
-
   },
 
 
   modalImg: {
-
     maxWidth:
       '100%',
 
@@ -5708,14 +5349,12 @@ const styles = {
 
     borderRadius:
       '4px'
-
   },
 
 
   closeBtn: {
-
     padding:
-      '6px 16px',
+      '7px 18px',
 
     backgroundColor:
       '#6c757d',
@@ -5734,7 +5373,6 @@ const styles = {
 
     fontSize:
       '12px'
-
   }
 
 };
