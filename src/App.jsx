@@ -2927,19 +2927,17 @@ export default function App() {
                   bubble.opacity,
                 zIndex: 1,
 
-                '--dx':
-                  `${bubble.dx}px`,
-
-                '--dy':
-                  `${bubble.dy}px`,
-
-                '--rot':
-                  `${bubble.rotation}deg`,
+                '--ex1': `${random(18, 55) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--ex2': `${random(28, 68) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--ex3': `${random(20, 62) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--er1': `${random(-25, 25)}deg`,
+                '--er2': `${random(-35, 35)}deg`,
+                '--er3': `${random(-25, 25)}deg`,
 
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
+                    : `emptyBubbleFloat ${Math.max(10, bubble.duration || 18)}s linear ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
               }}
             >
               <EmptyBubble
@@ -3049,13 +3047,11 @@ export default function App() {
                     `${(bubble.rotation || 0) + 18}deg`,
 
                   animation:
-                    isPaused ||
-                    bubble.fixed
+                    isPaused
                       ? 'none'
-                      : bubble.type ===
-                        'text'
+                      : bubble.type === 'text'
                         ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || -2}s infinite alternate`
-                        : `photoFloat ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || -2}s infinite alternate`
+                        : `photoRiseAndDrift ${Math.max(10, bubble.duration || 20)}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3397,6 +3393,72 @@ export default function App() {
           input,
           textarea {
             font-family: inherit;
+          }
+
+          @keyframes emptyBubbleFloat {
+            0% {
+              opacity: 0;
+              transform: translate3d(var(--ex1), 108vh, 0) rotate(var(--er1)) scale(.72);
+            }
+            10% {
+              opacity: .8;
+              transform: translate3d(var(--ex2), 78vh, 0) rotate(var(--er2)) scale(.9);
+            }
+            28% {
+              opacity: .78;
+              transform: translate3d(var(--ex3), 52vh, 0) rotate(var(--er3)) scale(1);
+            }
+            46% {
+              opacity: .72;
+              transform: translate3d(var(--ex1), 28vh, 0) rotate(var(--er1)) scale(1.03);
+            }
+            64% {
+              opacity: .65;
+              transform: translate3d(var(--ex2), 2vh, 0) rotate(var(--er2)) scale(.98);
+            }
+            82% {
+              opacity: .5;
+              transform: translate3d(var(--ex3), -35vh, 0) rotate(var(--er3)) scale(.94);
+            }
+            100% {
+              opacity: .25;
+              transform: translate3d(var(--ex1), -110vh, 0) rotate(var(--er1)) scale(.88);
+            }
+          }
+
+          @keyframes photoRiseAndDrift {
+            0% {
+              opacity: 0;
+              transform: translate3d(-18vw, 115vh, 0) rotate(-8deg) scale(.78);
+            }
+            12% {
+              opacity: 1;
+              transform: translate3d(12vw, 72vh, 0) rotate(5deg) scale(.9);
+            }
+            28% {
+              opacity: 1;
+              transform: translate3d(-24vw, 38vh, 0) rotate(-7deg) scale(1);
+            }
+            45% {
+              opacity: 1;
+              transform: translate3d(30vw, 8vh, 0) rotate(9deg) scale(1.04);
+            }
+            62% {
+              opacity: .95;
+              transform: translate3d(-20vw, -20vh, 0) rotate(-5deg) scale(.98);
+            }
+            78% {
+              opacity: .72;
+              transform: translate3d(24vw, -52vh, 0) rotate(7deg) scale(.94);
+            }
+            90% {
+              opacity: .38;
+              transform: translate3d(-12vw, -82vh, 0) rotate(-4deg) scale(.88);
+            }
+            100% {
+              opacity: 0;
+              transform: translate3d(18vw, -120vh, 0) rotate(8deg) scale(.78);
+            }
           }
 
           @keyframes photoFloat {
