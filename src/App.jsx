@@ -793,6 +793,14 @@ export default function App() {
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
 
+  // 空バブルの表示数。設定画面から変更できます。
+  const [emptyBubbleCount, setEmptyBubbleCount] =
+    useState(() =>
+      typeof window !== 'undefined' && window.innerWidth < 700
+        ? 18
+        : 28
+    );
+
   // -------------------------------------------------------
   // WakeLock
   // -------------------------------------------------------
@@ -843,34 +851,33 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
-    const count = window.innerWidth < 700
-      ? 18
-      : 28;
-
     const generated = Array.from(
-      { length: count },
+      { length: emptyBubbleCount },
       (_, i) => ({
         id: `empty-${makeId()}-${i}`,
         type: 'empty',
 
-        left: random(4, 94),
-        top: random(5, 92),
+        // 画面全体にバラけさせる
+        left: random(2, 96),
+        top: random(2, 94),
 
         size: randomInt(55, 155),
 
-        rotation: random(-30, 30),
+        rotation: random(-20, 20),
 
-        dx: random(-30, 30),
-        dy: random(-25, 25),
+        // 大きな連続軌道。vw/vhとしてCSSに渡す。
+        moveX: random(18, 30),
+        moveY: random(12, 22),
+        rotRange: random(8, 22),
 
         duration:
           speedMode === 'slow'
-            ? random(20, 35)
+            ? random(24, 40)
             : speedMode === 'fast'
-              ? random(9, 17)
-              : random(14, 25),
+              ? random(10, 18)
+              : random(16, 28),
 
-        delay: random(-20, 0),
+        delay: random(-28, 0),
 
         opacity: random(0.35, 0.8),
 
@@ -879,7 +886,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen]);
+  }, [currentScreen, emptyBubbleCount, speedMode]);
 
   // =======================================================
   // Firestore同期
@@ -1312,10 +1319,10 @@ export default function App() {
         randomInt(10, 90),
 
       left:
-        random(10, 90),
+        random(8, 92),
 
       top:
-        52,
+        random(25, 78),
 
       rotation:
         random(-15, 15),
@@ -1325,6 +1332,15 @@ export default function App() {
 
       dy:
         random(-30, 30),
+
+      moveX:
+        random(18, 30),
+
+      moveY:
+        random(14, 24),
+
+      rotRange:
+        random(8, 18),
 
       duration:
         speedMode === 'slow'
@@ -1373,20 +1389,25 @@ export default function App() {
       type: 'photo',
 
       left:
-        clamp(
-          50 + random(-10, 10),
-          5,
-          95
-        ),
+        random(8, 92),
 
       top:
-        52,
+        random(22, 78),
 
       size:
         randomInt(140, 240),
 
       rotation:
         random(-10, 10),
+
+      moveX:
+        random(18, 30),
+
+      moveY:
+        random(14, 24),
+
+      rotRange:
+        random(8, 18),
 
       duration:
         speedMode === 'slow'
@@ -1466,10 +1487,10 @@ export default function App() {
               randomInt(75, 115),
 
             left:
-              random(10, 90),
+              random(8, 92),
 
             top:
-              52,
+              random(25, 78),
 
             rotation:
               random(-25, 25),
@@ -1479,6 +1500,15 @@ export default function App() {
 
             dy:
               random(-35, 35),
+
+            moveX:
+              random(18, 30),
+
+            moveY:
+              random(14, 24),
+
+            rotRange:
+              random(10, 22),
 
             duration:
               speedMode === 'slow'
@@ -2898,6 +2928,74 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              <div
+                style={
+                  styles.settingSection
+                }
+              >
+                <div
+                  style={
+                    styles.settingLabel
+                  }
+                >
+                  🫧 バブルの量: {emptyBubbleCount}
+                </div>
+
+                <input
+                  type="range"
+                  min="0"
+                  max="120"
+                  step="1"
+                  value={emptyBubbleCount}
+                  onChange={e =>
+                    setEmptyBubbleCount(
+                      Number(e.target.value)
+                    )
+                  }
+                  style={{
+                    width: '100%'
+                  }}
+                />
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    marginTop: 8,
+                    alignItems: 'center'
+                  }}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    max="120"
+                    value={emptyBubbleCount}
+                    onChange={e =>
+                      setEmptyBubbleCount(
+                        Math.max(
+                          0,
+                          Math.min(
+                            120,
+                            Number(e.target.value) || 0
+                          )
+                        )
+                      )
+                    }
+                    style={{
+                      width: 80,
+                      padding: '6px 8px',
+                      borderRadius: 5,
+                      border: '1px solid #555',
+                      background: '#222',
+                      color: '#fff'
+                    }}
+                  />
+                  <span style={{ fontSize: 11, color: '#aaa' }}>
+                    0〜120個
+                  </span>
+                </div>
+              </div>
             </>
           )}
         </div>
@@ -2932,19 +3030,47 @@ export default function App() {
                   bubble.opacity,
                 zIndex: 1,
 
-                '--dx':
-                  `${bubble.dx}px`,
+                '--mx':
+                  `${bubble.moveX || 22}vw`,
 
-                '--dy':
-                  `${bubble.dy}px`,
+                '--my':
+                  `${bubble.moveY || 16}vh`,
 
                 '--rot':
-                  `${bubble.rotation}deg`,
+                  `${bubble.rotation || 0}deg`,
+
+                '--rr':
+                  `${bubble.rotRange || 14}deg`,
+
+                '--x0':
+                  `${-(bubble.moveX || 22) * 0.15}vw`,
+                '--y0':
+                  `${(bubble.moveY || 16) * 0.55}vh`,
+                '--x1':
+                  `${bubble.moveX || 22}vw`,
+                '--y1':
+                  `${-(bubble.moveY || 16) * 0.25}vh`,
+                '--x2':
+                  `${(bubble.moveX || 22) * 0.35}vw`,
+                '--y2':
+                  `${-(bubble.moveY || 16)}vh`,
+                '--x3':
+                  `${-(bubble.moveX || 22) * 0.95}vw`,
+                '--y3':
+                  `${-(bubble.moveY || 16) * 0.15}vh`,
+                '--x4':
+                  `${-(bubble.moveX || 22) * 0.3}vw`,
+                '--y4':
+                  `${bubble.moveY || 16}vh`,
+                '--x5':
+                  `${(bubble.moveX || 22) * 0.85}vw`,
+                '--y5':
+                  `${(bubble.moveY || 16) * 0.25}vh`,
 
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
+                    : `emptyDrift ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${bubble.delay}s infinite`
               }}
             >
               <EmptyBubble
@@ -3035,14 +3161,58 @@ export default function App() {
                   transformOrigin:
                     'center',
 
-                  '--dx':
-                    `${bubble.dx || 20}px`,
+                  '--mx':
+                    `${bubble.moveX || 22}vw`,
 
-                  '--dy':
-                    `${bubble.dy || 20}px`,
+                  '--my':
+                    `${bubble.moveY || 16}vh`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
+
+                  '--rr':
+                    `${bubble.rotRange || 14}deg`,
+
+                  '--px0':
+                    `${-(bubble.moveX || 22) * 0.85}vw`,
+                  '--py0':
+                    `${bubble.moveY || 16}vh`,
+                  '--px1':
+                    `${(bubble.moveX || 22) * 0.15}vw`,
+                  '--py1':
+                    `${-(bubble.moveY || 16) * 0.9}vh`,
+                  '--px2':
+                    `${bubble.moveX || 22}vw`,
+                  '--py2':
+                    `${-(bubble.moveY || 16) * 0.05}vh`,
+                  '--px3':
+                    `${(bubble.moveX || 22) * 0.15}vw`,
+                  '--py3':
+                    `${bubble.moveY || 16}vh`,
+                  '--px4':
+                    `${-(bubble.moveX || 22)}vw`,
+                  '--py4':
+                    `${-(bubble.moveY || 16) * 0.55}vh`,
+                  '--px5':
+                    `${-(bubble.moveX || 22) * 0.25}vw`,
+                  '--py5':
+                    `${(bubble.moveY || 16) * 0.35}vh`,
+                  '--tx0':
+                    `${-(bubble.moveX || 22) * 0.75}vw`,
+                  '--ty0':
+                    '22vh',
+                  '--tx1':
+                    `${(bubble.moveX || 22) * 0.7}vw`,
+                  '--ty1':
+                    `${-(bubble.moveY || 16) * 0.5}vh`,
+                  '--tx2':
+                    `${-(bubble.moveX || 22) * 0.45}vw`,
+                  '--ty2':
+                    `${(bubble.moveY || 16) * 0.75}vh`,
+                  '--tx3':
+                    `${(bubble.moveX || 22) * 0.25}vw`,
+                  '--ty3':
+                    `${-(bubble.moveY || 16) * 0.25}vh`,
 
                   animation:
                     isPaused ||
@@ -3050,8 +3220,8 @@ export default function App() {
                       ? 'none'
                       : bubble.type ===
                         'text'
-                        ? `bubbleRise ${bubble.duration || 16}s cubic-bezier(.22,.7,.25,1) ${Math.max(0, bubble.delay || 0)}s infinite`
-                        : `bubbleRise ${bubble.duration || 16}s cubic-bezier(.22,.7,.25,1) ${Math.max(0, bubble.delay || 0)}s infinite`
+                        ? `textGather ${Math.max(7, Math.min(16, (bubble.duration || 14) * 0.55))}s cubic-bezier(.22,.8,.2,1) ${Math.max(0, bubble.delay || 0)}s forwards`
+                        : `photoDrift ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3395,35 +3565,173 @@ export default function App() {
             font-family: inherit;
           }
 
-          @keyframes bubbleRise {
+          /*
+           * 空バブル：画面全体を大きな楕円軌道で漂う。
+           * 0%と100%を同じ位置にして、ループの継ぎ目を目立たせない。
+           */
+          @keyframes emptyDrift {
             0% {
-              opacity: 0;
-              transform: translate3d(0, 115vh, 0) scale(0.72) rotate(-8deg);
+              transform: translate3d(
+                var(--x0),
+                var(--y0),
+                0
+              ) rotate(var(--rot)) scale(0.96);
             }
 
-            12% {
+            16% {
+              transform: translate3d(
+                var(--x1),
+                var(--y1),
+                0
+              ) rotate(calc(var(--rot) + var(--rr))) scale(1.02);
+            }
+
+            33% {
+              transform: translate3d(
+                var(--x2),
+                var(--y2),
+                0
+              ) rotate(calc(var(--rot) - var(--rr))) scale(0.99);
+            }
+
+            50% {
+              transform: translate3d(
+                var(--x3),
+                var(--y3),
+                0
+              ) rotate(calc(var(--rot) + 8deg)) scale(1.04);
+            }
+
+            67% {
+              transform: translate3d(
+                var(--x4),
+                var(--y4),
+                0
+              ) rotate(calc(var(--rot) - 7deg)) scale(0.98);
+            }
+
+            84% {
+              transform: translate3d(
+                var(--x5),
+                var(--y5),
+                0
+              ) rotate(calc(var(--rot) + 6deg)) scale(1.02);
+            }
+
+            100% {
+              transform: translate3d(
+                var(--x0),
+                var(--y0),
+                0
+              ) rotate(var(--rot)) scale(0.96);
+            }
+          }
+
+          /* 写真：空バブルより大きく、ゆっくり画面を横断する */
+          @keyframes photoDrift {
+            0% {
+              transform: translate3d(
+                var(--px0),
+                var(--py0),
+                0
+              ) rotate(var(--rot)) scale(0.96);
+            }
+
+            18% {
+              transform: translate3d(
+                var(--px1),
+                var(--py1),
+                0
+              ) rotate(calc(var(--rot) + 7deg)) scale(1.01);
+            }
+
+            36% {
+              transform: translate3d(
+                var(--px2),
+                var(--py2),
+                0
+              ) rotate(calc(var(--rot) - var(--rr))) scale(1.04);
+            }
+
+            54% {
+              transform: translate3d(
+                var(--px3),
+                var(--py3),
+                0
+              ) rotate(calc(var(--rot) + 8deg)) scale(0.98);
+            }
+
+            72% {
+              transform: translate3d(
+                var(--px4),
+                var(--py4),
+                0
+              ) rotate(calc(var(--rot) - 8deg)) scale(1.03);
+            }
+
+            88% {
+              transform: translate3d(
+                var(--px5),
+                var(--py5),
+                0
+              ) rotate(calc(var(--rot) + 5deg)) scale(1);
+            }
+
+            100% {
+              transform: translate3d(
+                var(--px0),
+                var(--py0),
+                0
+              ) rotate(var(--rot)) scale(0.96);
+            }
+          }
+
+          /* 文字：出現位置はバラバラ。最後だけ中央の文字列に収束して停止 */
+          @keyframes textGather {
+            0% {
+              opacity: 0;
+              transform: translate3d(
+                var(--tx0),
+                var(--ty0),
+                0
+              ) rotate(calc(var(--rot) - 18deg)) scale(0.72);
+            }
+
+            18% {
               opacity: 1;
-              transform: translate3d(calc(var(--dx) * -0.35), 55vh, 0) scale(0.92) rotate(var(--rot));
+              transform: translate3d(
+                var(--tx1),
+                var(--ty1),
+                0
+              ) rotate(calc(var(--rot) + 12deg)) scale(0.92);
             }
 
             38% {
               opacity: 1;
-              transform: translate3d(calc(var(--dx) * 0.5), 12vh, 0) scale(1) rotate(calc(var(--rot) + 5deg));
+              transform: translate3d(
+                var(--tx2),
+                var(--ty2),
+                0
+              ) rotate(calc(var(--rot) - 10deg)) scale(1.02);
             }
 
-            58% {
+            62% {
               opacity: 1;
-              transform: translate3d(calc(var(--dx) * -0.45), -2vh, 0) scale(1.02) rotate(calc(var(--rot) - 5deg));
+              transform: translate3d(
+                var(--tx3),
+                var(--ty3),
+                0
+              ) rotate(4deg) scale(1.01);
             }
 
-            72% {
-              opacity: 0.95;
-              transform: translate3d(calc(var(--dx) * 0.25), -10vh, 0) scale(1) rotate(var(--rot));
+            82% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
 
             100% {
-              opacity: 0;
-              transform: translate3d(calc(var(--dx) * -0.7), -120vh, 0) scale(0.78) rotate(calc(var(--rot) + 10deg));
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
           }
 
