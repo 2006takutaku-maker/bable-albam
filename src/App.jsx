@@ -792,10 +792,15 @@ export default function App() {
 
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
-  const [emptyCount, setEmptyCount] = useState(35);
-  const [emptyMinSize, setEmptyMinSize] = useState(6);
-  const [emptyMaxSize, setEmptyMaxSize] = useState(70);
-  const [emptyDisappearChance, setEmptyDisappearChance] = useState(55);
+
+  const [emptyCount, setEmptyCount] =
+    useState(28);
+
+  const [emptyMinSize, setEmptyMinSize] =
+    useState(35);
+
+  const [emptyMaxSize, setEmptyMaxSize] =
+    useState(120);
 
   // -------------------------------------------------------
   // WakeLock
@@ -847,9 +852,7 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
-    const count = window.innerWidth < 700
-      ? 18
-      : 28;
+    const count = Math.max(0, emptyCount);
 
     const generated = Array.from(
       { length: count },
@@ -860,7 +863,7 @@ export default function App() {
         left: random(4, 94),
         top: random(5, 92),
 
-        size: randomInt(55, 155),
+        size: randomInt(emptyMinSize, Math.max(emptyMinSize, emptyMaxSize)),
 
         rotation: random(-30, 30),
 
@@ -883,7 +886,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen]);
+  }, [currentScreen, speedMode, emptyCount, emptyMinSize, emptyMaxSize]);
 
   // =======================================================
   // Firestore同期
@@ -2897,27 +2900,50 @@ export default function App() {
                   )}
                 </div>
               </div>
-              <div style={styles.settingSection}>
+              <div
+                style={
+                  styles.settingSection
+                }
+              >
                 <div style={styles.settingLabel}>🫧 空バブル調整</div>
+
                 <label style={styles.controlRow}>
-                  <span>個数：{emptyCount}</span>
-                  <input type="range" min="0" max="100" value={emptyCount}
-                    onChange={e => setEmptyCount(Number(e.target.value))} />
+                  個数：{emptyCount}
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={emptyCount}
+                    onChange={e =>
+                      setEmptyCount(Number(e.target.value))
+                    }
+                  />
                 </label>
+
                 <label style={styles.controlRow}>
-                  <span>最小サイズ：{emptyMinSize}px</span>
-                  <input type="range" min="3" max="40" value={emptyMinSize}
-                    onChange={e => setEmptyMinSize(Number(e.target.value))} />
+                  最小サイズ：{emptyMinSize}px
+                  <input
+                    type="range"
+                    min="5"
+                    max="80"
+                    value={emptyMinSize}
+                    onChange={e =>
+                      setEmptyMinSize(Number(e.target.value))
+                    }
+                  />
                 </label>
+
                 <label style={styles.controlRow}>
-                  <span>最大サイズ：{emptyMaxSize}px</span>
-                  <input type="range" min="20" max="120" value={emptyMaxSize}
-                    onChange={e => setEmptyMaxSize(Number(e.target.value))} />
-                </label>
-                <label style={styles.controlRow}>
-                  <span>途中で消える確率：{emptyDisappearChance}%</span>
-                  <input type="range" min="0" max="100" value={emptyDisappearChance}
-                    onChange={e => setEmptyDisappearChance(Number(e.target.value))} />
+                  最大サイズ：{emptyMaxSize}px
+                  <input
+                    type="range"
+                    min="30"
+                    max="180"
+                    value={emptyMaxSize}
+                    onChange={e =>
+                      setEmptyMaxSize(Number(e.target.value))
+                    }
+                  />
                 </label>
               </div>
             </>
@@ -3037,34 +3063,12 @@ export default function App() {
                   width:
                     bubble.size ||
                     (bubble.type === 'photo'
-                      ? 70 +
-                        (Math.abs(
-                          String(bubble.id)
-                            .split('')
-                            .reduce(
-                              (h, c) =>
-                                ((h << 5) - h +
-                                  c.charCodeAt(0)) |
-                                0,
-                              0
-                            )
-                        ) % 201)
+                      ? randomInt(70, 270)
                       : 90),
                   height:
                     bubble.size ||
                     (bubble.type === 'photo'
-                      ? 70 +
-                        (Math.abs(
-                          String(bubble.id)
-                            .split('')
-                            .reduce(
-                              (h, c) =>
-                                ((h << 5) - h +
-                                  c.charCodeAt(0)) |
-                                0,
-                              0
-                            )
-                        ) % 201)
+                      ? randomInt(70, 270)
                       : 90),
 
                   opacity:
@@ -3098,18 +3102,6 @@ export default function App() {
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
-                  // 文字ごとに違う軌道。中央到着だけ同期。
-                  '--tx1': `${random(16, 42) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                  '--tx2': `${random(10, 34) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                  '--tx3': `${random(8, 28) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                  '--tx4': `${random(8, 30) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                  '--tx5': `${random(12, 38) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                  '--tr1': `${random(-25, 25)}deg`,
-                  '--tr2': `${random(-35, 35)}deg`,
-                  '--tr3': `${random(-22, 22)}deg`,
-                  '--tr4': `${random(-30, 30)}deg`,
-                  '--tr5': `${random(-25, 25)}deg`,
-
                   '--rot2':
                     `${(bubble.rotation || 0) + 18}deg`,
 
@@ -3117,7 +3109,7 @@ export default function App() {
                     isPaused
                       ? 'none'
                       : bubble.type === 'text'
-                        ? `textAssembleFade ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) 0s infinite`
+                        ? `textAssembleFade ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || -2}s infinite`
                         : `photoRiseAndDrift ${Math.max(10, bubble.duration || 20)}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
                 }}
               >
@@ -3131,53 +3123,23 @@ export default function App() {
                       bubble.size
                     }
                   />
+                )}
 
-                  {isPaused && (
-                    <button
-                      type="button"
-                      aria-label="写真を削除"
-                      onPointerDown={e => {
-                        e.stopPropagation();
-                      }}
-                      onClick={e => {
-                        e.stopPropagation();
-                        setBubbles(prev =>
-                          prev.filter(
-                            item =>
-                              item.id !== bubble.id
-                          )
-                        );
-                        if (
-                          selectedBubbleId ===
-                          bubble.id
-                        ) {
-                          setSelectedBubbleId(null);
-                        }
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: -12,
-                        right: -12,
-                        width: 28,
-                        height: 28,
-                        borderRadius: '50%',
-                        border: '2px solid #fff',
-                        background:
-                          'rgba(20,20,25,.82)',
-                        color: '#fff',
-                        fontSize: 20,
-                        lineHeight: '22px',
-                        padding: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        zIndex: 100
-                      }}
-                    >
-                      ×
-                    </button>
-                  )}
+                {bubble.type === 'photo' && isPaused && (
+                  <button
+                    type="button"
+                    aria-label="この写真を削除"
+                    onPointerDown={e =>
+                      e.stopPropagation()
+                    }
+                    onClick={async e => {
+                      e.stopPropagation();
+                      await deleteBubble(bubble.id);
+                    }}
+                    style={styles.photoDeleteButton}
+                  >
+                    ×
+                  </button>
                 )}
 
                 {bubble.type ===
@@ -3744,31 +3706,33 @@ export default function App() {
           @keyframes textAssembleFade {
             0% {
               opacity: 0;
-              transform: translate3d(var(--tx1), 62vh, 0) rotate(var(--tr1)) scale(.72);
+              transform: translate3d(-18vw, 65vh, 0) rotate(-12deg) scale(.72);
             }
-            14% {
-              opacity: .45;
-              transform: translate3d(var(--tx2), 38vh, 0) rotate(var(--tr2)) scale(.84);
+            12% {
+              opacity: .35;
+              transform: translate3d(10vw, 38vh, 0) rotate(8deg) scale(.84);
             }
-            30% {
-              opacity: .8;
-              transform: translate3d(var(--tx3), 20vh, 0) rotate(var(--tr3)) scale(.94);
+            26% {
+              opacity: .75;
+              transform: translate3d(-12vw, 18vh, 0) rotate(-6deg) scale(.94);
             }
-            46% {
+            42% {
               opacity: 1;
               transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
-            70% {
+            /* 中央で言葉になった状態をしっかり見せる */
+            68% {
               opacity: 1;
               transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
-            84% {
+            /* ここから消え始める */
+            82% {
               opacity: .55;
-              transform: translate3d(var(--tx4), -16vh, 0) rotate(var(--tr4)) scale(.92);
+              transform: translate3d(5vw, -12vh, 0) rotate(5deg) scale(.94);
             }
             100% {
               opacity: 0;
-              transform: translate3d(var(--tx5), -58vh, 0) rotate(var(--tr5)) scale(.76);
+              transform: translate3d(-8vw, -48vh, 0) rotate(-8deg) scale(.78);
             }
           }
 
@@ -4213,6 +4177,26 @@ const styles = {
     position: 'absolute',
     inset: 0,
     overflow: 'hidden'
+  },
+
+  photoDeleteButton: {
+    position: 'absolute',
+    top: -12,
+    right: -12,
+    width: 30,
+    height: 30,
+    borderRadius: '50%',
+    border: '2px solid rgba(255,255,255,.95)',
+    background: 'rgba(15,15,20,.85)',
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    zIndex: 999,
+    padding: 0
   },
 
   freeBubble: {
