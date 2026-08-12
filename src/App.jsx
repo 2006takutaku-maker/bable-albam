@@ -853,15 +853,19 @@ export default function App() {
         id: `empty-${makeId()}-${i}`,
         type: 'empty',
 
-        left: random(4, 94),
-        top: random(5, 92),
+        // 常に画面下の外側からスタート
+        left: random(3, 97),
+        top: 100,
 
-        size: randomInt(55, 155),
+        size: randomInt(32, 82),
 
-        rotation: random(-30, 30),
+        rotation: random(-35, 35),
 
-        dx: random(-30, 30),
-        dy: random(-25, 25),
+        // 画面幅に対する大きな横移動（CSSではvwとして使用）
+        dx: random(18, 48) * (Math.random() < 0.5 ? -1 : 1),
+        dy: random(8, 24) * (Math.random() < 0.5 ? -1 : 1),
+        moveX: random(24, 58) * (Math.random() < 0.5 ? -1 : 1),
+        moveX2: random(20, 62) * (Math.random() < 0.5 ? -1 : 1),
 
         duration:
           speedMode === 'slow'
@@ -870,7 +874,7 @@ export default function App() {
               ? random(9, 17)
               : random(14, 25),
 
-        delay: random(-20, 0),
+        delay: random(-18, 0),
 
         opacity: random(0.35, 0.8),
 
@@ -1390,11 +1394,11 @@ export default function App() {
 
       // 写真ごとに違う大きな軌道
       moveX:
-        random(18, 42) * (Math.random() < 0.5 ? -1 : 1),
+        random(28, 58) * (Math.random() < 0.5 ? -1 : 1),
       moveY:
         random(10, 30) * (Math.random() < 0.5 ? -1 : 1),
       moveX2:
-        random(20, 48) * (Math.random() < 0.5 ? -1 : 1),
+        random(24, 64) * (Math.random() < 0.5 ? -1 : 1),
       moveY2:
         random(12, 34) * (Math.random() < 0.5 ? -1 : 1),
       rotRange:
@@ -1488,11 +1492,11 @@ export default function App() {
 
             // 文字ごとに別々の軌道・揺れ幅
             moveX:
-              random(14, 38) * (Math.random() < 0.5 ? -1 : 1),
+              random(22, 52) * (Math.random() < 0.5 ? -1 : 1),
             moveY:
               random(10, 28) * (Math.random() < 0.5 ? -1 : 1),
             moveX2:
-              random(16, 42) * (Math.random() < 0.5 ? -1 : 1),
+              random(20, 58) * (Math.random() < 0.5 ? -1 : 1),
             moveY2:
               random(12, 32) * (Math.random() < 0.5 ? -1 : 1),
             rotRange:
@@ -2956,19 +2960,14 @@ export default function App() {
                   bubble.opacity,
                 zIndex: 1,
 
-                '--dx':
-                  `${bubble.dx}px`,
-
-                '--dy':
-                  `${bubble.dy}px`,
-
-                '--rot':
-                  `${bubble.rotation}deg`,
-
+                '--x1': `${bubble.dx ?? 20}vw`,
+                '--x2': `${bubble.moveX ?? -30}vw`,
+                '--x3': `${bubble.moveX2 ?? 35}vw`,
+                '--rot': `${bubble.rotation ?? 0}deg`,
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
+                    : `emptyBubbleRise ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${bubble.delay}s infinite`
               }}
             >
               <EmptyBubble
@@ -3075,13 +3074,13 @@ export default function App() {
 
                   // バブルごとに違う軌道をCSSへ渡す
                   '--moveX':
-                    `${bubble.moveX ?? bubble.dx ?? 20}px`,
+                    `${bubble.moveX ?? bubble.dx ?? 30}vw`,
                   '--moveY':
-                    `${bubble.moveY ?? bubble.dy ?? 20}px`,
+                    `${bubble.moveY ?? bubble.dy ?? 18}vh`,
                   '--moveX2':
-                    `${bubble.moveX2 ?? -(bubble.dx ?? 20)}px`,
+                    `${bubble.moveX2 ?? -(bubble.dx ?? 30)}vw`,
                   '--moveY2':
-                    `${bubble.moveY2 ?? (bubble.dy ?? 20)}px`,
+                    `${bubble.moveY2 ?? (bubble.dy ?? 18)}vh`,
                   '--rotRange':
                     `${bubble.rotRange ?? 14}deg`,
 
@@ -3089,7 +3088,7 @@ export default function App() {
                     isPaused ||
                     bubble.fixed
                       ? 'none'
-                      : `bubbleRiseNatural ${bubble.duration || 16}s cubic-bezier(.22,.7,.25,1) ${Math.max(0, bubble.delay || 0)}s infinite`
+                      : `bubbleDrift ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${Math.max(0, bubble.delay || 0)}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3433,77 +3432,69 @@ export default function App() {
             font-family: inherit;
           }
 
-          @keyframes bubbleRiseNatural {
+          @keyframes emptyBubbleRise {
             0% {
               opacity: 0;
-              transform: translate3d(
-                calc(var(--moveX) * -0.25),
-                112vh,
-                0
-              ) scale(0.72) rotate(calc(var(--rot) - var(--rotRange)));
+              transform: translate3d(calc(var(--x1) * -0.35), 110vh, 0) rotate(calc(var(--rot) - 12deg)) scale(.72);
             }
-
-            10% {
-              opacity: 1;
-              transform: translate3d(
-                calc(var(--moveX) * 0.35),
-                72vh,
-                0
-              ) scale(0.9) rotate(calc(var(--rot) + var(--rotRange) * 0.25));
+            12% {
+              opacity: .85;
+              transform: translate3d(calc(var(--x2) * .35), 82vh, 0) rotate(calc(var(--rot) + 8deg)) scale(.9);
             }
-
-            27% {
-              opacity: 1;
-              transform: translate3d(
-                calc(var(--moveX2) * 0.65),
-                38vh,
-                0
-              ) scale(0.98) rotate(calc(var(--rot) - var(--rotRange) * 0.45));
+            30% {
+              opacity: .8;
+              transform: translate3d(calc(var(--x1) * .9), 55vh, 0) rotate(calc(var(--rot) - 6deg)) scale(1);
             }
-
-            46% {
-              opacity: 1;
-              transform: translate3d(
-                calc(var(--moveX) * -0.85),
-                8vh,
-                0
-              ) scale(1.03) rotate(calc(var(--rot) + var(--rotRange) * 0.65));
+            48% {
+              opacity: .72;
+              transform: translate3d(calc(var(--x3) * -.8), 28vh, 0) rotate(calc(var(--rot) + 14deg)) scale(1.03);
             }
-
-            63% {
-              opacity: 0.96;
-              transform: translate3d(
-                calc(var(--moveX2) * 0.8),
-                -18vh,
-                0
-              ) scale(1.01) rotate(calc(var(--rot) - var(--rotRange) * 0.25));
+            66% {
+              opacity: .58;
+              transform: translate3d(calc(var(--x2) * .8), 2vh, 0) rotate(calc(var(--rot) - 10deg)) scale(.98);
             }
-
-            78% {
-              opacity: 0.7;
-              transform: translate3d(
-                calc(var(--moveX) * -0.65),
-                -48vh,
-                0
-              ) scale(0.98) rotate(calc(var(--rot) + var(--rotRange) * 0.55));
+            82% {
+              opacity: .3;
+              transform: translate3d(calc(var(--x3) * -.55), -30vh, 0) rotate(calc(var(--rot) + 12deg)) scale(.9);
             }
-
-            90% {
-              opacity: 0.3;
-              transform: translate3d(
-                calc(var(--moveX2) * 0.5),
-                -78vh,
-                0
-              ) scale(0.9) rotate(calc(var(--rot) - var(--rotRange) * 0.4));
-            }
-
             100% {
               opacity: 0;
-              transform: translate3d(
-                calc(var(--moveX) * 0.8),
-                -125vh,
-                0
-              ) scale(0.78) rotate(calc(var(--rot) + var(--rotRange)));
+              transform: translate3d(calc(var(--x1) * .7), -75vh, 0) rotate(calc(var(--rot) - 16deg)) scale(.78);
+            }
+          }
+
+          @keyframes bubbleDrift {
+            0% {
+              opacity: 0;
+              transform: translate3d(calc(var(--moveX) * -0.35), 72vh, 0) rotate(calc(var(--rot) - var(--rotRange))) scale(.78);
+            }
+            10% {
+              opacity: 1;
+              transform: translate3d(calc(var(--moveX2) * .35), 48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .25)) scale(.9);
+            }
+            25% {
+              opacity: 1;
+              transform: translate3d(var(--moveX), 24vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .55)) scale(1);
+            }
+            42% {
+              opacity: 1;
+              transform: translate3d(calc(var(--moveX2) * -0.85), 2vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .7)) scale(1.04);
+            }
+            58% {
+              opacity: .95;
+              transform: translate3d(calc(var(--moveX) * .75), -20vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .2)) scale(1.01);
+            }
+            76% {
+              opacity: .65;
+              transform: translate3d(calc(var(--moveX2) * -.75), -48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .5)) scale(.96);
+            }
+            90% {
+              opacity: .28;
+              transform: translate3d(calc(var(--moveX) * .55), -75vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .45)) scale(.9);
+            }
+            100% {
+              opacity: 0;
+              transform: translate3d(calc(var(--moveX2) * -.45), -105vh, 0) rotate(calc(var(--rot) + var(--rotRange))) scale(.82);
             }
           }
 
