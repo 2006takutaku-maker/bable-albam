@@ -60,6 +60,16 @@ const randomInt = (min, max) =>
 const makeId = () =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 
+// バブルごとの奥行きを安定して作る
+const depthFromId = id => {
+  const text = String(id || '');
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return (hash % 1000) / 1000;
+};
+
 // =========================================================
 // 4. 写真バブル Canvas
 //    人物写真を極端に歪ませない。
@@ -857,7 +867,10 @@ export default function App() {
         left: random(3, 97),
         top: 100,
 
-        size: randomInt(32, 82),
+        size:
+          Math.random() < 0.42
+            ? randomInt(10, 26)
+            : randomInt(28, 72),
 
         rotation: random(-35, 35),
 
@@ -878,7 +891,8 @@ export default function App() {
 
         opacity: random(0.35, 0.8),
 
-        variant: randomInt(0, 3)
+        variant: randomInt(0, 3),
+        depth: random(0.05, 1)
       })
     );
 
@@ -1387,7 +1401,7 @@ export default function App() {
         52,
 
       size:
-        randomInt(105, 250),
+        randomInt(85, 280),
 
       rotation:
         random(-18, 18),
@@ -1403,6 +1417,9 @@ export default function App() {
         random(12, 34) * (Math.random() < 0.5 ? -1 : 1),
       rotRange:
         random(8, 28),
+
+      // 奥行き：遠い写真は小さく、近い写真は大きく
+      depth: random(0.05, 1),
 
       duration:
         speedMode === 'slow'
@@ -1501,6 +1518,10 @@ export default function App() {
               random(12, 32) * (Math.random() < 0.5 ? -1 : 1),
             rotRange:
               random(6, 24),
+
+            // 奥行き
+            depth:
+              random(0.12, 0.95),
 
             dx:
               random(-35, 35),
@@ -2997,22 +3018,33 @@ export default function App() {
               selectedBubbleId ===
               bubble.id;
 
+            // 奥行き：遠いものは小さく・薄く、近いものは大きく・はっきり
+            const depth =
+              bubble.depth ??
+              depthFromId(bubble.id);
+
+            const depthScale =
+              0.32 + depth * 0.88;
+
+            const depthOpacity =
+              0.42 + depth * 0.58;
+
             // 停止中は文字も写真も実際の座標をそのまま使う。
             // これで停止中に好きな場所へドラッグできる。
-            const targetLeft =
-              isPaused
-                ? bubble.left
-                : (textTarget?.left ?? bubble.left);
+            const targetLeft = bubble.left;
+            const targetTop = bubble.top;
+            const targetRotation = bubble.rotation;
 
-            const targetTop =
-              isPaused
-                ? bubble.top
-                : (textTarget?.top ?? bubble.top);
+            // 文字は元の位置から中央の完成位置まで移動する
+            const textDx =
+              bubble.type === 'text' && textTarget
+                ? textTarget.left - bubble.left
+                : 0;
 
-            const targetRotation =
-              isPaused
-                ? bubble.rotation
-                : (textTarget?.rotation ?? bubble.rotation);
+            const textDy =
+              bubble.type === 'text' && textTarget
+                ? textTarget.top - bubble.top
+                : 0;
 
             return (
               <div
@@ -3048,8 +3080,7 @@ export default function App() {
                     bubble.size,
 
                   opacity:
-                    bubble.opacity ??
-                    1,
+                    (bubble.opacity ?? 1) * depthOpacity,
 
                   zIndex:
                     bubble.zIndex ??
@@ -3083,12 +3114,20 @@ export default function App() {
                     `${bubble.moveY2 ?? (bubble.dy ?? 18)}vh`,
                   '--rotRange':
                     `${bubble.rotRange ?? 14}deg`,
+                  '--depthScale':
+                    depthScale,
+                  '--textDx':
+                    textDx,
+                  '--textDy':
+                    textDy,
 
                   animation:
                     isPaused ||
                     bubble.fixed
                       ? 'none'
-                      : `bubbleDrift ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${Math.max(0, bubble.delay || 0)}s infinite`
+                      : bubble.type === 'text'
+                        ? `textAssemble ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${Math.max(0, bubble.delay || 0)}s infinite`
+                        : `bubbleDrift ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${Math.max(0, bubble.delay || 0)}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3435,66 +3474,111 @@ export default function App() {
           @keyframes emptyBubbleRise {
             0% {
               opacity: 0;
-              transform: translate3d(calc(var(--x1) * -0.35), 110vh, 0) rotate(calc(var(--rot) - 12deg)) scale(.72);
+              transform: translate3d(calc(var(--x1) * -0.35), 110vh, 0) rotate(calc(var(--rot) - 12deg)) scale(calc(var(--depthScale) * .72));
             }
             12% {
               opacity: .85;
-              transform: translate3d(calc(var(--x2) * .35), 82vh, 0) rotate(calc(var(--rot) + 8deg)) scale(.9);
+              transform: translate3d(calc(var(--x2) * .35), 82vh, 0) rotate(calc(var(--rot) + 8deg)) scale(calc(var(--depthScale) * .9));
             }
             30% {
               opacity: .8;
-              transform: translate3d(calc(var(--x1) * .9), 55vh, 0) rotate(calc(var(--rot) - 6deg)) scale(1);
+              transform: translate3d(calc(var(--x1) * .9), 55vh, 0) rotate(calc(var(--rot) - 6deg)) scale(calc(var(--depthScale) * 1));
             }
             48% {
               opacity: .72;
-              transform: translate3d(calc(var(--x3) * -.8), 28vh, 0) rotate(calc(var(--rot) + 14deg)) scale(1.03);
+              transform: translate3d(calc(var(--x3) * -.8), 28vh, 0) rotate(calc(var(--rot) + 14deg)) scale(calc(var(--depthScale) * 1.03));
             }
             66% {
               opacity: .58;
-              transform: translate3d(calc(var(--x2) * .8), 2vh, 0) rotate(calc(var(--rot) - 10deg)) scale(.98);
+              transform: translate3d(calc(var(--x2) * .8), 2vh, 0) rotate(calc(var(--rot) - 10deg)) scale(calc(var(--depthScale) * .98));
             }
             82% {
               opacity: .3;
-              transform: translate3d(calc(var(--x3) * -.55), -30vh, 0) rotate(calc(var(--rot) + 12deg)) scale(.9);
+              transform: translate3d(calc(var(--x3) * -.55), -30vh, 0) rotate(calc(var(--rot) + 12deg)) scale(calc(var(--depthScale) * .9));
             }
             100% {
               opacity: 0;
-              transform: translate3d(calc(var(--x1) * .7), -75vh, 0) rotate(calc(var(--rot) - 16deg)) scale(.78);
+              transform: translate3d(calc(var(--x1) * .7), -75vh, 0) rotate(calc(var(--rot) - 16deg)) scale(calc(var(--depthScale) * .78));
             }
           }
 
           @keyframes bubbleDrift {
             0% {
               opacity: 0;
-              transform: translate3d(calc(var(--moveX) * -0.35), 72vh, 0) rotate(calc(var(--rot) - var(--rotRange))) scale(.78);
+              transform: translate3d(calc(var(--moveX) * -0.35), 72vh, 0) rotate(calc(var(--rot) - var(--rotRange))) scale(calc(var(--depthScale) * .78));
             }
             10% {
               opacity: 1;
-              transform: translate3d(calc(var(--moveX2) * .35), 48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .25)) scale(.9);
+              transform: translate3d(calc(var(--moveX2) * .35), 48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .25)) scale(calc(var(--depthScale) * .9));
             }
             25% {
               opacity: 1;
-              transform: translate3d(var(--moveX), 24vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .55)) scale(1);
+              transform: translate3d(var(--moveX), 24vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .55)) scale(calc(var(--depthScale) * 1));
             }
             42% {
               opacity: 1;
-              transform: translate3d(calc(var(--moveX2) * -0.85), 2vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .7)) scale(1.04);
+              transform: translate3d(calc(var(--moveX2) * -0.85), 2vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .7)) scale(calc(var(--depthScale) * 1.04));
             }
             58% {
               opacity: .95;
-              transform: translate3d(calc(var(--moveX) * .75), -20vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .2)) scale(1.01);
+              transform: translate3d(calc(var(--moveX) * .75), -20vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .2)) scale(calc(var(--depthScale) * 1.01));
             }
             76% {
               opacity: .65;
-              transform: translate3d(calc(var(--moveX2) * -.75), -48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .5)) scale(.96);
+              transform: translate3d(calc(var(--moveX2) * -.75), -48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .5)) scale(calc(var(--depthScale) * .96));
             }
             90% {
               opacity: .28;
-              transform: translate3d(calc(var(--moveX) * .55), -75vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .45)) scale(.9);
+              transform: translate3d(calc(var(--moveX) * .55), -75vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .45)) scale(calc(var(--depthScale) * .9));
             }
             100% {
               opacity: 0;
-              transform: translate3d(calc(var(--moveX2) * -.45), -105vh, 0) rotate(calc(var(--rot) + var(--rotRange))) scale(.82);
+              transform: translate3d(calc(var(--moveX2) * -.45), -105vh, 0) rotate(calc(var(--rot) + var(--rotRange))) scale(calc(var(--depthScale) * .82));
+            }
+          }
+
+          @keyframes textAssemble {
+            0% {
+              opacity: 0;
+              transform:
+                translate3d(0, 72vh, 0)
+                rotate(var(--rot))
+                scale(calc(var(--depthScale) * .62));
+            }
+            16% {
+              opacity: 1;
+              transform:
+                translate3d(calc(var(--textDx) * .32vw), calc(var(--textDy) * .32vh), 0)
+                rotate(calc(var(--rot) + var(--rotRange)))
+                scale(calc(var(--depthScale) * .82));
+            }
+            38% {
+              opacity: 1;
+              transform:
+                translate3d(calc(var(--textDx) * .72vw), calc(var(--textDy) * .72vh), 0)
+                rotate(calc(var(--rot) - var(--rotRange) * .45))
+                scale(calc(var(--depthScale) * 1.02));
+            }
+            55% {
+              opacity: 1;
+              transform:
+                translate3d(calc(var(--textDx) * 1vw), calc(var(--textDy) * 1vh), 0)
+                rotate(0deg)
+                scale(var(--depthScale));
+            }
+            72% {
+              opacity: 1;
+              transform:
+                translate3d(calc(var(--textDx) * 1vw), calc(var(--textDy) * 1vh), 0)
+                rotate(0deg)
+                scale(var(--depthScale));
+            }
+            100% {
+              opacity: 0;
+              transform:
+                translate3d(calc(var(--textDx) * 1.25vw), calc(var(--textDy) * 1.25vh - 12vh), 0)
+                rotate(calc(var(--rot) * .5))
+                scale(calc(var(--depthScale) * .72));
             }
           }
 
