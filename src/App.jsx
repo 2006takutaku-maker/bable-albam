@@ -859,7 +859,7 @@ export default function App() {
 
         // 画面全体にバラけさせる
         left: random(2, 96),
-        top: random(2, 94),
+        top: 0,
 
         size: randomInt(55, 155),
 
@@ -3045,7 +3045,7 @@ export default function App() {
                 '--x0':
                   `${(bubble.entryX ?? 0)}vw`,
                 '--y0':
-                  '112vh',
+                  '115vh',
                 '--x1':
                   `${bubble.moveX || 22}vw`,
                 '--y1':
@@ -3070,7 +3070,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `emptyDrift ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${bubble.delay}s infinite`
+                    : `emptyDrift ${bubble.duration}s linear ${bubble.delay}s infinite`
               }}
             >
               <EmptyBubble
@@ -3601,7 +3601,7 @@ export default function App() {
             }
             100% {
               opacity: 0;
-              transform: translate3d(calc(var(--x5) * 0.6), -118vh, 0) rotate(calc(var(--rot) + 18deg)) scale(0.78);
+              transform: translate3d(calc(var(--x5) * 0.6), -125vh, 0) rotate(calc(var(--rot) + 18deg)) scale(0.78);
             }
           }
 
