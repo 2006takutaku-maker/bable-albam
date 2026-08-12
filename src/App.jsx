@@ -3220,7 +3220,7 @@ export default function App() {
                       ? 'none'
                       : bubble.type ===
                         'text'
-                        ? `textGather ${Math.max(7, Math.min(16, (bubble.duration || 14) * 0.55))}s cubic-bezier(.22,.8,.2,1) ${Math.max(0, bubble.delay || 0)}s forwards`
+                        ? `textGather ${Math.max(9, Math.min(18, (bubble.duration || 14) * 0.65))}s cubic-bezier(.22,.8,.2,1) ${Math.max(0, bubble.delay || 0)}s infinite`
                         : `photoDrift ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
                 }}
               >
@@ -3571,6 +3571,7 @@ export default function App() {
            */
           @keyframes emptyDrift {
             0% {
+              opacity: 0;
               transform: translate3d(
                 var(--x0),
                 var(--y0),
@@ -3579,6 +3580,7 @@ export default function App() {
             }
 
             16% {
+              opacity: 0.65;
               transform: translate3d(
                 var(--x1),
                 var(--y1),
@@ -3587,6 +3589,7 @@ export default function App() {
             }
 
             33% {
+              opacity: 0.82;
               transform: translate3d(
                 var(--x2),
                 var(--y2),
@@ -3595,6 +3598,7 @@ export default function App() {
             }
 
             50% {
+              opacity: 0.9;
               transform: translate3d(
                 var(--x3),
                 var(--y3),
@@ -3603,6 +3607,7 @@ export default function App() {
             }
 
             67% {
+              opacity: 0.72;
               transform: translate3d(
                 var(--x4),
                 var(--y4),
@@ -3611,6 +3616,7 @@ export default function App() {
             }
 
             84% {
+              opacity: 0.45;
               transform: translate3d(
                 var(--x5),
                 var(--y5),
@@ -3630,6 +3636,7 @@ export default function App() {
           /* 写真：空バブルより大きく、ゆっくり画面を横断する */
           @keyframes photoDrift {
             0% {
+              opacity: 0;
               transform: translate3d(
                 var(--px0),
                 var(--py0),
@@ -3638,6 +3645,7 @@ export default function App() {
             }
 
             18% {
+              opacity: 0.8;
               transform: translate3d(
                 var(--px1),
                 var(--py1),
@@ -3646,6 +3654,7 @@ export default function App() {
             }
 
             36% {
+              opacity: 1;
               transform: translate3d(
                 var(--px2),
                 var(--py2),
@@ -3654,6 +3663,7 @@ export default function App() {
             }
 
             54% {
+              opacity: 1;
               transform: translate3d(
                 var(--px3),
                 var(--py3),
@@ -3662,6 +3672,7 @@ export default function App() {
             }
 
             72% {
+              opacity: 0.85;
               transform: translate3d(
                 var(--px4),
                 var(--py4),
@@ -3670,6 +3681,7 @@ export default function App() {
             }
 
             88% {
+              opacity: 0.45;
               transform: translate3d(
                 var(--px5),
                 var(--py5),
@@ -3687,51 +3699,46 @@ export default function App() {
           }
 
           /* 文字：出現位置はバラバラ。最後だけ中央の文字列に収束して停止 */
+          /* 文字：バラバラに現れて中央で言葉になり、最後に消えて次の周期へ */
           @keyframes textGather {
             0% {
               opacity: 0;
-              transform: translate3d(
-                var(--tx0),
-                var(--ty0),
-                0
-              ) rotate(calc(var(--rot) - 18deg)) scale(0.72);
+              transform: translate3d(var(--tx0), var(--ty0), 0) rotate(calc(var(--rot) - 18deg)) scale(0.72);
             }
 
-            18% {
+            14% {
+              opacity: 0.35;
+              transform: translate3d(var(--tx1), var(--ty1), 0) rotate(calc(var(--rot) + 12deg)) scale(0.88);
+            }
+
+            30% {
               opacity: 1;
-              transform: translate3d(
-                var(--tx1),
-                var(--ty1),
-                0
-              ) rotate(calc(var(--rot) + 12deg)) scale(0.92);
+              transform: translate3d(var(--tx2), var(--ty2), 0) rotate(calc(var(--rot) - 10deg)) scale(1.02);
             }
 
-            38% {
+            48% {
               opacity: 1;
-              transform: translate3d(
-                var(--tx2),
-                var(--ty2),
-                0
-              ) rotate(calc(var(--rot) - 10deg)) scale(1.02);
+              transform: translate3d(var(--tx3), var(--ty3), 0) rotate(4deg) scale(1.01);
             }
 
-            62% {
-              opacity: 1;
-              transform: translate3d(
-                var(--tx3),
-                var(--ty3),
-                0
-              ) rotate(4deg) scale(1.01);
-            }
-
-            82% {
+            58% {
               opacity: 1;
               transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+
+            78% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+
+            92% {
+              opacity: 0.35;
+              transform: translate3d(0, -3vh, 0) rotate(3deg) scale(0.96);
             }
 
             100% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+              opacity: 0;
+              transform: translate3d(0, -8vh, 0) rotate(6deg) scale(0.9);
             }
           }
 
