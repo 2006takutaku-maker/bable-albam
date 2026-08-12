@@ -792,6 +792,10 @@ export default function App() {
 
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
+  const [emptyCount, setEmptyCount] = useState(35);
+  const [emptyMinSize, setEmptyMinSize] = useState(6);
+  const [emptyMaxSize, setEmptyMaxSize] = useState(70);
+  const [emptyDisappearChance, setEmptyDisappearChance] = useState(55);
 
   // -------------------------------------------------------
   // WakeLock
@@ -2893,6 +2897,29 @@ export default function App() {
                   )}
                 </div>
               </div>
+              <div style={styles.settingSection}>
+                <div style={styles.settingLabel}>🫧 空バブル調整</div>
+                <label style={styles.controlRow}>
+                  <span>個数：{emptyCount}</span>
+                  <input type="range" min="0" max="100" value={emptyCount}
+                    onChange={e => setEmptyCount(Number(e.target.value))} />
+                </label>
+                <label style={styles.controlRow}>
+                  <span>最小サイズ：{emptyMinSize}px</span>
+                  <input type="range" min="3" max="40" value={emptyMinSize}
+                    onChange={e => setEmptyMinSize(Number(e.target.value))} />
+                </label>
+                <label style={styles.controlRow}>
+                  <span>最大サイズ：{emptyMaxSize}px</span>
+                  <input type="range" min="20" max="120" value={emptyMaxSize}
+                    onChange={e => setEmptyMaxSize(Number(e.target.value))} />
+                </label>
+                <label style={styles.controlRow}>
+                  <span>途中で消える確率：{emptyDisappearChance}%</span>
+                  <input type="range" min="0" max="100" value={emptyDisappearChance}
+                    onChange={e => setEmptyDisappearChance(Number(e.target.value))} />
+                </label>
+              </div>
             </>
           )}
         </div>
@@ -4329,6 +4356,15 @@ const styles = {
 
   settingSection: {
     marginBottom: 25
+  },
+
+  controlRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    marginTop: 10,
+    color: '#fff',
+    fontSize: 13
   },
 
   settingLabel: {
