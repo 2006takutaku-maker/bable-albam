@@ -3062,15 +3062,20 @@ export default function App() {
                   bubble.opacity,
                 zIndex: 5,
 
-                '--x1': `${bubble.dx ?? 20}vw`,
-                '--x2': `${bubble.moveX ?? -30}vw`,
-                '--x3': `${bubble.moveX2 ?? 35}vw`,
-                '--rot': `${bubble.rotation ?? 0}deg`,
+                '--x1': `${random(10, 35) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--x2': `${random(25, 65) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--x3': `${random(35, 75) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--x4': `${random(20, 70) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--x5': `${random(30, 80) * (Math.random() < 0.5 ? -1 : 1)}vw`,
+                '--r1': `${random(-25, 25)}deg`,
+                '--r2': `${random(-35, 35)}deg`,
+                '--r3': `${random(-25, 25)}deg`,
                 '--depthScale': `${0.3 + (bubble.depth ?? 0.5) * 0.9}`,
+                willChange: 'transform, opacity',
                 animation:
                   isPaused
                     ? 'none'
-                    : `${bubble.disappear ? 'emptyBubbleRise' : 'emptyBubbleEscape'} ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
+                    : `${bubble.disappear ? 'emptyBubbleRise' : 'emptyBubbleEscape'} ${Math.max(8, Number(bubble.duration) || 18)}s linear ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
               }}
             >
               <EmptyBubble
@@ -3556,111 +3561,58 @@ export default function App() {
           @keyframes emptyBubbleRise {
             0% {
               opacity: 0;
-              transform: translate3d(calc(var(--x1) * -0.35), 110vh, 0) rotate(calc(var(--rot) - 12deg)) scale(calc(var(--depthScale) * .72));
+              transform: translate3d(var(--x1), 110vh, 0) rotate(var(--r1)) scale(var(--depthScale));
             }
             12% {
-              opacity: .85;
-              transform: translate3d(calc(var(--x2) * .35), 82vh, 0) rotate(calc(var(--rot) + 8deg)) scale(calc(var(--depthScale) * .9));
+              opacity: .9;
+              transform: translate3d(var(--x2), 82vh, 0) rotate(var(--r2)) scale(var(--depthScale));
             }
             30% {
-              opacity: .8;
-              transform: translate3d(calc(var(--x1) * .9), 55vh, 0) rotate(calc(var(--rot) - 6deg)) scale(calc(var(--depthScale) * 1));
+              opacity: .82;
+              transform: translate3d(var(--x3), 55vh, 0) rotate(var(--r3)) scale(var(--depthScale));
             }
             48% {
               opacity: .72;
-              transform: translate3d(calc(var(--x3) * -.8), 28vh, 0) rotate(calc(var(--rot) + 14deg)) scale(calc(var(--depthScale) * 1.03));
+              transform: translate3d(var(--x4), 28vh, 0) rotate(var(--r1)) scale(var(--depthScale));
             }
             66% {
               opacity: .58;
-              transform: translate3d(calc(var(--x2) * .8), 2vh, 0) rotate(calc(var(--rot) - 10deg)) scale(calc(var(--depthScale) * .98));
+              transform: translate3d(var(--x5), 2vh, 0) rotate(var(--r2)) scale(var(--depthScale));
             }
             82% {
-              opacity: .3;
-              transform: translate3d(calc(var(--x3) * -.55), -30vh, 0) rotate(calc(var(--rot) + 12deg)) scale(calc(var(--depthScale) * .9));
+              opacity: .34;
+              transform: translate3d(var(--x3), -30vh, 0) rotate(var(--r3)) scale(var(--depthScale));
             }
             100% {
               opacity: 0;
-              transform: translate3d(calc(var(--x1) * .7), -75vh, 0) rotate(calc(var(--rot) - 16deg)) scale(calc(var(--depthScale) * .78));
-            }
-          }
-
-          @keyframes bubbleDrift {
-            0% {
-              opacity: 0;
-              transform: translate3d(calc(var(--moveX) * -0.35), 72vh, 0) rotate(calc(var(--rot) - var(--rotRange))) scale(calc(var(--depthScale) * .78));
-            }
-            10% {
-              opacity: 1;
-              transform: translate3d(calc(var(--moveX2) * .35), 48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .25)) scale(calc(var(--depthScale) * .9));
-            }
-            25% {
-              opacity: 1;
-              transform: translate3d(var(--moveX), 24vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .55)) scale(calc(var(--depthScale) * 1));
-            }
-            42% {
-              opacity: 1;
-              transform: translate3d(calc(var(--moveX2) * -0.85), 2vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .7)) scale(calc(var(--depthScale) * 1.04));
-            }
-            58% {
-              opacity: .95;
-              transform: translate3d(calc(var(--moveX) * .75), -20vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .2)) scale(calc(var(--depthScale) * 1.01));
-            }
-            76% {
-              opacity: .65;
-              transform: translate3d(calc(var(--moveX2) * -.75), -48vh, 0) rotate(calc(var(--rot) + var(--rotRange) * .5)) scale(calc(var(--depthScale) * .96));
-            }
-            90% {
-              opacity: .28;
-              transform: translate3d(calc(var(--moveX) * .55), -75vh, 0) rotate(calc(var(--rot) - var(--rotRange) * .45)) scale(calc(var(--depthScale) * .9));
-            }
-            100% {
-              opacity: 0;
-              transform: translate3d(calc(var(--moveX2) * -.45), -105vh, 0) rotate(calc(var(--rot) + var(--rotRange))) scale(calc(var(--depthScale) * .82));
+              transform: translate3d(var(--x4), -90vh, 0) rotate(var(--r1)) scale(var(--depthScale));
             }
           }
 
           @keyframes emptyBubbleEscape {
             0% {
               opacity: 0;
-              transform: translate3d(calc(var(--x1) * -0.35), 110vh, 0)
-                rotate(calc(var(--rot) - 12deg))
-                scale(calc(var(--depthScale) * .72));
+              transform: translate3d(var(--x1), 110vh, 0) rotate(var(--r1)) scale(var(--depthScale));
             }
-            12% {
-              opacity: .85;
-              transform: translate3d(calc(var(--x2) * .35), 82vh, 0)
-                rotate(calc(var(--rot) + 8deg))
-                scale(calc(var(--depthScale) * .9));
+            15% {
+              opacity: .9;
+              transform: translate3d(var(--x2), 78vh, 0) rotate(var(--r2)) scale(var(--depthScale));
             }
-            30% {
-              opacity: .8;
-              transform: translate3d(calc(var(--x1) * .9), 55vh, 0)
-                rotate(calc(var(--rot) - 6deg))
-                scale(calc(var(--depthScale) * 1));
+            35% {
+              opacity: .82;
+              transform: translate3d(var(--x3), 42vh, 0) rotate(var(--r3)) scale(var(--depthScale));
             }
-            50% {
-              opacity: .72;
-              transform: translate3d(calc(var(--x3) * -.8), 24vh, 0)
-                rotate(calc(var(--rot) + 14deg))
-                scale(calc(var(--depthScale) * 1.03));
+            55% {
+              opacity: .75;
+              transform: translate3d(var(--x4), 5vh, 0) rotate(var(--r1)) scale(var(--depthScale));
             }
-            72% {
-              opacity: .62;
-              transform: translate3d(calc(var(--x2) * .8), -18vh, 0)
-                rotate(calc(var(--rot) - 10deg))
-                scale(calc(var(--depthScale) * .98));
-            }
-            88% {
-              opacity: .5;
-              transform: translate3d(calc(var(--x3) * -.55), -65vh, 0)
-                rotate(calc(var(--rot) + 12deg))
-                scale(calc(var(--depthScale) * .9));
+            75% {
+              opacity: .68;
+              transform: translate3d(var(--x5), -38vh, 0) rotate(var(--r2)) scale(var(--depthScale));
             }
             100% {
-              opacity: .34;
-              transform: translate3d(calc(var(--x1) * .7), -135vh, 0)
-                rotate(calc(var(--rot) - 16deg))
-                scale(calc(var(--depthScale) * .78));
+              opacity: .5;
+              transform: translate3d(var(--x2), -130vh, 0) rotate(var(--r3)) scale(var(--depthScale));
             }
           }
 
