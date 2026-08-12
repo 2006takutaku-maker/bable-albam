@@ -874,9 +874,10 @@ export default function App() {
           id: `empty-${makeId()}-${i}`,
           type: 'empty',
 
-          // 画面の下からスタート
+          // 初回だけは画面内にも分散して表示。
+          // CSSの負のdelayで、その位置から自然に動き始める。
           left: random(3, 97),
-          top: 100,
+          top: random(20, 100),
 
           // サイズは設定値の範囲。小さい奥バブルも混ぜる
           size: randomInt(minSize, maxSize),
@@ -1371,8 +1372,9 @@ export default function App() {
             ? random(10, 17)
             : random(15, 26),
 
+      // 部屋を開いた直後から動いて見えるように途中から開始
       delay:
-        random(0, 5),
+        random(-8, -2),
 
       author:
         currentUser.username,
@@ -1448,7 +1450,8 @@ export default function App() {
             ? random(9, 13)
             : random(12, 18),
 
-      delay: random(0, 4),
+      // 呼び出した写真も待たずに動き始める
+      delay: random(-6, -1),
 
       fixed: false,
 
@@ -1557,7 +1560,7 @@ export default function App() {
                   : random(15, 25),
 
             delay:
-              random(0, 5),
+              random(-8, -2),
 
             opacity: 0.9,
 
@@ -3057,7 +3060,7 @@ export default function App() {
                   bubble.size,
                 opacity:
                   bubble.opacity,
-                zIndex: 1,
+                zIndex: 5,
 
                 '--x1': `${bubble.dx ?? 20}vw`,
                 '--x2': `${bubble.moveX ?? -30}vw`,
@@ -3066,7 +3069,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `${bubble.disappear ? 'emptyBubbleRise' : 'emptyBubbleEscape'} ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${bubble.delay}s infinite`
+                    : `${bubble.disappear ? 'emptyBubbleRise' : 'emptyBubbleEscape'} ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
               }}
             >
               <EmptyBubble
@@ -3204,8 +3207,8 @@ export default function App() {
                     bubble.fixed
                       ? 'none'
                       : bubble.type === 'text'
-                        ? `textAssemble ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${Math.max(0, bubble.delay || 0)}s infinite`
-                        : `bubbleDrift ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${Math.max(0, bubble.delay || 0)}s infinite`
+                        ? `textAssemble ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
+                        : `bubbleDrift ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
                 }}
               >
                 {bubble.type ===
