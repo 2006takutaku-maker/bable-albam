@@ -2937,7 +2937,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `emptyBubbleFloat ${Math.max(10, bubble.duration || 18)}s linear ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
+                    : `emptyBubbleFloat ${Math.max(20, bubble.duration || 26)}s linear ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
               }}
             >
               <EmptyBubble
@@ -3638,29 +3638,31 @@ export default function App() {
               opacity: 0;
               transform: translate3d(-18vw, 65vh, 0) rotate(-12deg) scale(.72);
             }
-            14% {
-              opacity: 1;
-              transform: translate3d(10vw, 38vh, 0) rotate(8deg) scale(.88);
+            12% {
+              opacity: .35;
+              transform: translate3d(10vw, 38vh, 0) rotate(8deg) scale(.84);
             }
-            30% {
-              opacity: 1;
-              transform: translate3d(-12vw, 18vh, 0) rotate(-6deg) scale(.96);
+            26% {
+              opacity: .75;
+              transform: translate3d(-12vw, 18vh, 0) rotate(-6deg) scale(.94);
             }
-            48% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-            }
-            66% {
+            42% {
               opacity: 1;
               transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
+            /* 中央で言葉になった状態をしっかり見せる */
+            68% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+            /* ここから消え始める */
             82% {
-              opacity: .72;
-              transform: translate3d(8vw, -18vh, 0) rotate(7deg) scale(.92);
+              opacity: .55;
+              transform: translate3d(5vw, -12vh, 0) rotate(5deg) scale(.94);
             }
             100% {
               opacity: 0;
-              transform: translate3d(-12vw, -65vh, 0) rotate(-10deg) scale(.7);
+              transform: translate3d(-8vw, -48vh, 0) rotate(-8deg) scale(.78);
             }
           }
 
