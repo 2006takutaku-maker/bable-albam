@@ -3066,6 +3066,7 @@ export default function App() {
                 '--x2': `${bubble.moveX ?? -30}vw`,
                 '--x3': `${bubble.moveX2 ?? 35}vw`,
                 '--rot': `${bubble.rotation ?? 0}deg`,
+                '--depthScale': `${0.3 + (bubble.depth ?? 0.5) * 0.9}`,
                 animation:
                   isPaused
                     ? 'none'
