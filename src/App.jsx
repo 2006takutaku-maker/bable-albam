@@ -60,16 +60,6 @@ const randomInt = (min, max) =>
 const makeId = () =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 
-// バブルごとの奥行きを安定して作る
-const depthFromId = id => {
-  const text = String(id || '');
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  }
-  return (hash % 1000) / 1000;
-};
-
 // =========================================================
 // 4. 写真バブル Canvas
 //    人物写真を極端に歪ませない。
@@ -803,16 +793,6 @@ export default function App() {
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
 
-  // 空バブルの手動調整
-  const [emptyCount, setEmptyCount] =
-    useState(32);
-  const [emptyMinSize, setEmptyMinSize] =
-    useState(8);
-  const [emptyMaxSize, setEmptyMaxSize] =
-    useState(72);
-  const [emptyDisappearChance, setEmptyDisappearChance] =
-    useState(55);
-
   // -------------------------------------------------------
   // WakeLock
   // -------------------------------------------------------
@@ -863,62 +843,43 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
+    const count = window.innerWidth < 700
+      ? 18
+      : 28;
+
     const generated = Array.from(
-      { length: emptyCount },
-      (_, i) => {
-        const minSize = Math.min(emptyMinSize, emptyMaxSize);
-        const maxSize = Math.max(emptyMinSize, emptyMaxSize);
-        const disappear = Math.random() * 100 < emptyDisappearChance;
+      { length: count },
+      (_, i) => ({
+        id: `empty-${makeId()}-${i}`,
+        type: 'empty',
 
-        return {
-          id: `empty-${makeId()}-${i}`,
-          type: 'empty',
+        left: random(4, 94),
+        top: random(5, 92),
 
-          // 初回だけは画面内にも分散して表示。
-          // CSSの負のdelayで、その位置から自然に動き始める。
-          left: random(3, 97),
-          top: random(20, 100),
+        size: randomInt(55, 155),
 
-          // サイズは設定値の範囲。小さい奥バブルも混ぜる
-          size: randomInt(minSize, maxSize),
+        rotation: random(-30, 30),
 
-          rotation: random(-35, 35),
+        dx: random(-30, 30),
+        dy: random(-25, 25),
 
-          // 画面全体を大きく横切る軌道
-          dx: random(18, 48) * (Math.random() < 0.5 ? -1 : 1),
-          dy: random(8, 24) * (Math.random() < 0.5 ? -1 : 1),
-          moveX: random(24, 58) * (Math.random() < 0.5 ? -1 : 1),
-          moveX2: random(20, 62) * (Math.random() < 0.5 ? -1 : 1),
+        duration:
+          speedMode === 'slow'
+            ? random(20, 35)
+            : speedMode === 'fast'
+              ? random(9, 17)
+              : random(14, 25),
 
-          duration:
-            speedMode === 'slow'
-              ? random(20, 35)
-              : speedMode === 'fast'
-                ? random(9, 17)
-                : random(14, 25),
+        delay: random(-20, 0),
 
-          // 開始位置・タイミングをばらけさせる
-          delay: random(-18, 0),
+        opacity: random(0.35, 0.8),
 
-          opacity: random(0.45, 0.9),
-          variant: randomInt(0, 3),
-          depth: random(0.05, 1),
-
-          // trueなら途中で消える。falseなら消えずに画面外まで上がる
-          disappear
-        };
-      }
+        variant: randomInt(0, 3)
+      })
     );
 
     setEmptyBubbles(generated);
-  }, [
-    currentScreen,
-    emptyCount,
-    emptyMinSize,
-    emptyMaxSize,
-    emptyDisappearChance,
-    speedMode
-  ]);
+  }, [currentScreen]);
 
   // =======================================================
   // Firestore同期
@@ -1351,10 +1312,10 @@ export default function App() {
         randomInt(10, 90),
 
       left:
-        random(10, 90),
+        random(8, 88),
 
       top:
-        52,
+        random(10, 90),
 
       rotation:
         random(-15, 15),
@@ -1372,9 +1333,8 @@ export default function App() {
             ? random(10, 17)
             : random(15, 26),
 
-      // 部屋を開いた直後から動いて見えるように途中から開始
       delay:
-        random(-8, -2),
+        random(-15, 0),
 
       author:
         currentUser.username,
@@ -1420,38 +1380,17 @@ export default function App() {
         ),
 
       top:
-        52,
+        clamp(
+          50 + random(-10, 10),
+          5,
+          95
+        ),
 
       size:
-        randomInt(85, 280),
+        randomInt(140, 240),
 
       rotation:
-        random(-18, 18),
-
-      // 写真ごとに違う大きな軌道
-      moveX:
-        random(28, 58) * (Math.random() < 0.5 ? -1 : 1),
-      moveY:
-        random(10, 30) * (Math.random() < 0.5 ? -1 : 1),
-      moveX2:
-        random(24, 64) * (Math.random() < 0.5 ? -1 : 1),
-      moveY2:
-        random(12, 34) * (Math.random() < 0.5 ? -1 : 1),
-      rotRange:
-        random(8, 28),
-
-      // 奥行き：遠い写真は小さく、近い写真は大きく
-      depth: random(0.05, 1),
-
-      duration:
-        speedMode === 'slow'
-          ? random(16, 22)
-          : speedMode === 'fast'
-            ? random(9, 13)
-            : random(12, 18),
-
-      // 呼び出した写真も待たずに動き始める
-      delay: random(-6, -1),
+        random(-10, 10),
 
       fixed: false,
 
@@ -1522,29 +1461,13 @@ export default function App() {
               randomInt(75, 115),
 
             left:
-              random(10, 90),
+              random(5, 95),
 
             top:
-              52,
+              random(5, 95),
 
             rotation:
               random(-25, 25),
-
-            // 文字ごとに別々の軌道・揺れ幅
-            moveX:
-              random(22, 52) * (Math.random() < 0.5 ? -1 : 1),
-            moveY:
-              random(10, 28) * (Math.random() < 0.5 ? -1 : 1),
-            moveX2:
-              random(20, 58) * (Math.random() < 0.5 ? -1 : 1),
-            moveY2:
-              random(12, 32) * (Math.random() < 0.5 ? -1 : 1),
-            rotRange:
-              random(6, 24),
-
-            // 奥行き
-            depth:
-              random(0.12, 0.95),
 
             dx:
               random(-35, 35),
@@ -1560,7 +1483,7 @@ export default function App() {
                   : random(15, 25),
 
             delay:
-              random(-8, -2),
+              random(-12, 0),
 
             opacity: 0.9,
 
@@ -2970,64 +2893,6 @@ export default function App() {
                   )}
                 </div>
               </div>
-
-              <div style={styles.settingSection}>
-                <div style={styles.settingLabel}>
-                  🫧 空バブル調整
-                </div>
-
-                <label style={styles.controlRow}>
-                  <span>個数：{emptyCount}</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={emptyCount}
-                    onChange={e =>
-                      setEmptyCount(Number(e.target.value))
-                    }
-                  />
-                </label>
-
-                <label style={styles.controlRow}>
-                  <span>最小サイズ：{emptyMinSize}px</span>
-                  <input
-                    type="range"
-                    min="4"
-                    max="50"
-                    value={emptyMinSize}
-                    onChange={e =>
-                      setEmptyMinSize(Number(e.target.value))
-                    }
-                  />
-                </label>
-
-                <label style={styles.controlRow}>
-                  <span>最大サイズ：{emptyMaxSize}px</span>
-                  <input
-                    type="range"
-                    min="20"
-                    max="140"
-                    value={emptyMaxSize}
-                    onChange={e =>
-                      setEmptyMaxSize(Number(e.target.value))
-                    }
-                  />
-                </label>
-
-                <label style={styles.controlRow}>
-                  <span>途中で消える確率：{emptyDisappearChance}%</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={emptyDisappearChance}
-                    onChange={e =>
-                      setEmptyDisappearChance(Number(e.target.value))
-                    }
-                  />
-                </label>
-              </div>
             </>
           )}
         </div>
@@ -3060,22 +2925,21 @@ export default function App() {
                   bubble.size,
                 opacity:
                   bubble.opacity,
-                zIndex: 5,
+                zIndex: 1,
 
-                '--x1': `${random(10, 35) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--x2': `${random(25, 65) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--x3': `${random(35, 75) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--x4': `${random(20, 70) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--x5': `${random(30, 80) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--r1': `${random(-25, 25)}deg`,
-                '--r2': `${random(-35, 35)}deg`,
-                '--r3': `${random(-25, 25)}deg`,
-                '--depthScale': `${0.3 + (bubble.depth ?? 0.5) * 0.9}`,
-                willChange: 'transform, opacity',
+                '--dx':
+                  `${bubble.dx}px`,
+
+                '--dy':
+                  `${bubble.dy}px`,
+
+                '--rot':
+                  `${bubble.rotation}deg`,
+
                 animation:
                   isPaused
                     ? 'none'
-                    : `${bubble.disappear ? 'emptyBubbleRise' : 'emptyBubbleEscape'} ${Math.max(8, Number(bubble.duration) || 18)}s linear ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
+                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
               }}
             >
               <EmptyBubble
@@ -3105,33 +2969,17 @@ export default function App() {
               selectedBubbleId ===
               bubble.id;
 
-            // 奥行き：遠いものは小さく・薄く、近いものは大きく・はっきり
-            const depth =
-              bubble.depth ??
-              depthFromId(bubble.id);
+            const targetLeft =
+              textTarget?.left ??
+              bubble.left;
 
-            const depthScale =
-              0.32 + depth * 0.88;
+            const targetTop =
+              textTarget?.top ??
+              bubble.top;
 
-            const depthOpacity =
-              0.42 + depth * 0.58;
-
-            // 停止中は文字も写真も実際の座標をそのまま使う。
-            // これで停止中に好きな場所へドラッグできる。
-            const targetLeft = bubble.left;
-            const targetTop = bubble.top;
-            const targetRotation = bubble.rotation;
-
-            // 文字は元の位置から中央の完成位置まで移動する
-            const textDx =
-              bubble.type === 'text' && textTarget
-                ? textTarget.left - bubble.left
-                : 0;
-
-            const textDy =
-              bubble.type === 'text' && textTarget
-                ? textTarget.top - bubble.top
-                : 0;
+            const targetRotation =
+              textTarget?.rotation ??
+              bubble.rotation;
 
             return (
               <div
@@ -3167,7 +3015,8 @@ export default function App() {
                     bubble.size,
 
                   opacity:
-                    (bubble.opacity ?? 1) * depthOpacity,
+                    bubble.opacity ??
+                    1,
 
                   zIndex:
                     bubble.zIndex ??
@@ -3182,39 +3031,31 @@ export default function App() {
                     'center',
 
                   '--dx':
-                    `${bubble.dx || 20}px`,
+                    `${bubble.dx || 25}vw`,
 
                   '--dy':
-                    `${bubble.dy || 20}px`,
+                    `${bubble.dy || 15}vh`,
+
+                  '--dx2':
+                    `${bubble.moveX2 || -35}vw`,
+
+                  '--dy2':
+                    `${bubble.moveY2 || 18}vh`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
-                  // バブルごとに違う軌道をCSSへ渡す
-                  '--moveX':
-                    `${bubble.moveX ?? bubble.dx ?? 30}vw`,
-                  '--moveY':
-                    `${bubble.moveY ?? bubble.dy ?? 18}vh`,
-                  '--moveX2':
-                    `${bubble.moveX2 ?? -(bubble.dx ?? 30)}vw`,
-                  '--moveY2':
-                    `${bubble.moveY2 ?? (bubble.dy ?? 18)}vh`,
-                  '--rotRange':
-                    `${bubble.rotRange ?? 14}deg`,
-                  '--depthScale':
-                    depthScale,
-                  '--textDx':
-                    textDx,
-                  '--textDy':
-                    textDy,
+                  '--rot2':
+                    `${(bubble.rotation || 0) + 18}deg`,
 
                   animation:
                     isPaused ||
                     bubble.fixed
                       ? 'none'
-                      : bubble.type === 'text'
-                        ? `textAssemble ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
-                        : `bubbleDrift ${bubble.duration || 16}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
+                      : bubble.type ===
+                        'text'
+                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || -2}s infinite alternate`
+                        : `photoFloat ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || -2}s infinite alternate`
                 }}
               >
                 {bubble.type ===
@@ -3558,113 +3399,211 @@ export default function App() {
             font-family: inherit;
           }
 
-          @keyframes emptyBubbleRise {
+          @keyframes photoFloat {
             0% {
-              opacity: 0;
-              transform: translate3d(var(--x1), 110vh, 0) rotate(var(--r1)) scale(var(--depthScale));
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.8),
+                  calc(var(--dy) * -0.7),
+                  0
+                )
+                rotate(calc(var(--rot) - 8deg))
+                scale(.94);
             }
-            12% {
-              opacity: .9;
-              transform: translate3d(var(--x2), 82vh, 0) rotate(var(--r2)) scale(var(--depthScale));
+
+            22% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.35),
+                  calc(var(--dy) * -1),
+                  0
+                )
+                rotate(calc(var(--rot) + 6deg))
+                scale(1.02);
             }
-            30% {
-              opacity: .82;
-              transform: translate3d(var(--x3), 55vh, 0) rotate(var(--r3)) scale(var(--depthScale));
-            }
+
             48% {
-              opacity: .72;
-              transform: translate3d(var(--x4), 28vh, 0) rotate(var(--r1)) scale(var(--depthScale));
+              transform:
+                translate3d(
+                  var(--dx2),
+                  var(--dy2),
+                  0
+                )
+                rotate(var(--rot2))
+                scale(.98);
             }
-            66% {
-              opacity: .58;
-              transform: translate3d(var(--x5), 2vh, 0) rotate(var(--r2)) scale(var(--depthScale));
-            }
-            82% {
-              opacity: .34;
-              transform: translate3d(var(--x3), -30vh, 0) rotate(var(--r3)) scale(var(--depthScale));
-            }
-            100% {
-              opacity: 0;
-              transform: translate3d(var(--x4), -90vh, 0) rotate(var(--r1)) scale(var(--depthScale));
-            }
-          }
 
-          @keyframes emptyBubbleEscape {
-            0% {
-              opacity: 0;
-              transform: translate3d(var(--x1), 110vh, 0) rotate(var(--r1)) scale(var(--depthScale));
-            }
-            15% {
-              opacity: .9;
-              transform: translate3d(var(--x2), 78vh, 0) rotate(var(--r2)) scale(var(--depthScale));
-            }
-            35% {
-              opacity: .82;
-              transform: translate3d(var(--x3), 42vh, 0) rotate(var(--r3)) scale(var(--depthScale));
-            }
-            55% {
-              opacity: .75;
-              transform: translate3d(var(--x4), 5vh, 0) rotate(var(--r1)) scale(var(--depthScale));
-            }
-            75% {
-              opacity: .68;
-              transform: translate3d(var(--x5), -38vh, 0) rotate(var(--r2)) scale(var(--depthScale));
-            }
-            100% {
-              opacity: .5;
-              transform: translate3d(var(--x2), -130vh, 0) rotate(var(--r3)) scale(var(--depthScale));
-            }
-          }
-
-          @keyframes textAssemble {
-            0% {
-              opacity: 0;
-              transform:
-                translate3d(0, 72vh, 0)
-                rotate(var(--rot))
-                scale(calc(var(--depthScale) * .62));
-            }
-            16% {
-              opacity: 1;
-              transform:
-                translate3d(calc(var(--textDx) * .32vw), calc(var(--textDy) * .32vh), 0)
-                rotate(calc(var(--rot) + var(--rotRange)))
-                scale(calc(var(--depthScale) * .82));
-            }
-            38% {
-              opacity: 1;
-              transform:
-                translate3d(calc(var(--textDx) * .72vw), calc(var(--textDy) * .72vh), 0)
-                rotate(calc(var(--rot) - var(--rotRange) * .45))
-                scale(calc(var(--depthScale) * 1.02));
-            }
-            55% {
-              opacity: 1;
-              transform:
-                translate3d(calc(var(--textDx) * 1vw), calc(var(--textDy) * 1vh), 0)
-                rotate(0deg)
-                scale(var(--depthScale));
-            }
             72% {
-              opacity: 1;
               transform:
-                translate3d(calc(var(--textDx) * 1vw), calc(var(--textDy) * 1vh), 0)
-                rotate(0deg)
-                scale(var(--depthScale));
+                translate3d(
+                  calc(var(--dx) * -0.45),
+                  calc(var(--dy2) * 0.6),
+                  0
+                )
+                rotate(calc(var(--rot) - 5deg))
+                scale(1.05);
             }
+
             100% {
-              opacity: 0;
               transform:
-                translate3d(calc(var(--textDx) * 1.25vw), calc(var(--textDy) * 1.25vh - 12vh), 0)
-                rotate(calc(var(--rot) * .5))
-                scale(calc(var(--depthScale) * .72));
+                translate3d(
+                  calc(var(--dx2) * -0.7),
+                  calc(var(--dy) * 0.8),
+                  0
+                )
+                rotate(calc(var(--rot) + 10deg))
+                scale(.96);
             }
           }
 
-          @media (prefers-reduced-motion: reduce) {
-            .bubble-animation {
-              animation-duration: 1ms !important;
-              animation-iteration-count: 1 !important;
+          @keyframes photoFloat {
+            0% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.8),
+                  calc(var(--dy) * -0.7),
+                  0
+                )
+                rotate(calc(var(--rot) - 8deg))
+                scale(.94);
+            }
+
+            22% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.35),
+                  calc(var(--dy) * -1),
+                  0
+                )
+                rotate(calc(var(--rot) + 6deg))
+                scale(1.02);
+            }
+
+            48% {
+              transform:
+                translate3d(
+                  var(--dx2),
+                  var(--dy2),
+                  0
+                )
+                rotate(var(--rot2))
+                scale(.98);
+            }
+
+            72% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.45),
+                  calc(var(--dy2) * 0.6),
+                  0
+                )
+                rotate(calc(var(--rot) - 5deg))
+                scale(1.05);
+            }
+
+            100% {
+              transform:
+                translate3d(
+                  calc(var(--dx2) * -0.7),
+                  calc(var(--dy) * 0.8),
+                  0
+                )
+                rotate(calc(var(--rot) + 10deg))
+                scale(.96);
+            }
+          }
+
+          @keyframes freeFloat {
+            0% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -1),
+                  calc(var(--dy) * -1),
+                  0
+                )
+                rotate(var(--rot));
+            }
+
+            25% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.6),
+                  calc(var(--dy) * -0.8),
+                  0
+                )
+                rotate(calc(var(--rot) + 12deg));
+            }
+
+            50% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.8),
+                  calc(var(--dy) * 0.9),
+                  0
+                )
+                rotate(calc(var(--rot) - 10deg));
+            }
+
+            75% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.9),
+                  calc(var(--dy) * 0.3),
+                  0
+                )
+                rotate(calc(var(--rot) + 20deg));
+            }
+
+            100% {
+              transform:
+                translate3d(
+                  var(--dx),
+                  var(--dy),
+                  0
+                )
+                rotate(calc(var(--rot) - 8deg));
+            }
+          }
+
+          @keyframes textFloat {
+            0% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -1),
+                  calc(var(--dy) * -1),
+                  0
+                )
+                rotate(var(--rot));
+            }
+
+            45% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.7),
+                  calc(var(--dy) * 0.5),
+                  0
+                )
+                rotate(calc(var(--rot) + 12deg));
+            }
+
+            70% {
+              transform:
+                translate3d(
+                  0,
+                  0,
+                  0
+                )
+                rotate(0deg);
+            }
+
+            100% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.6),
+                  calc(var(--dy) * 0.8),
+                  0
+                )
+                rotate(calc(var(--rot) - 10deg));
             }
           }
         `}
@@ -4075,6 +4014,7 @@ const styles = {
       'center center',
     willChange:
       'transform',
+    touchAction: 'none',
     touchAction:
       'none'
   },
@@ -4209,15 +4149,6 @@ const styles = {
 
   settingSection: {
     marginBottom: 25
-  },
-
-  controlRow: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    marginTop: 10,
-    color: '#fff',
-    fontSize: 13
   },
 
   settingLabel: {
