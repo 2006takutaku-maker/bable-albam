@@ -803,6 +803,16 @@ export default function App() {
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
 
+  // 空バブルの手動調整
+  const [emptyCount, setEmptyCount] =
+    useState(32);
+  const [emptyMinSize, setEmptyMinSize] =
+    useState(8);
+  const [emptyMaxSize, setEmptyMaxSize] =
+    useState(72);
+  const [emptyDisappearChance, setEmptyDisappearChance] =
+    useState(55);
+
   // -------------------------------------------------------
   // WakeLock
   // -------------------------------------------------------
@@ -853,51 +863,61 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
-    const count = window.innerWidth < 700
-      ? 18
-      : 28;
-
     const generated = Array.from(
-      { length: count },
-      (_, i) => ({
-        id: `empty-${makeId()}-${i}`,
-        type: 'empty',
+      { length: emptyCount },
+      (_, i) => {
+        const minSize = Math.min(emptyMinSize, emptyMaxSize);
+        const maxSize = Math.max(emptyMinSize, emptyMaxSize);
+        const disappear = Math.random() * 100 < emptyDisappearChance;
 
-        // 常に画面下の外側からスタート
-        left: random(3, 97),
-        top: 100,
+        return {
+          id: `empty-${makeId()}-${i}`,
+          type: 'empty',
 
-        size:
-          Math.random() < 0.42
-            ? randomInt(10, 26)
-            : randomInt(28, 72),
+          // 画面の下からスタート
+          left: random(3, 97),
+          top: 100,
 
-        rotation: random(-35, 35),
+          // サイズは設定値の範囲。小さい奥バブルも混ぜる
+          size: randomInt(minSize, maxSize),
 
-        // 画面幅に対する大きな横移動（CSSではvwとして使用）
-        dx: random(18, 48) * (Math.random() < 0.5 ? -1 : 1),
-        dy: random(8, 24) * (Math.random() < 0.5 ? -1 : 1),
-        moveX: random(24, 58) * (Math.random() < 0.5 ? -1 : 1),
-        moveX2: random(20, 62) * (Math.random() < 0.5 ? -1 : 1),
+          rotation: random(-35, 35),
 
-        duration:
-          speedMode === 'slow'
-            ? random(20, 35)
-            : speedMode === 'fast'
-              ? random(9, 17)
-              : random(14, 25),
+          // 画面全体を大きく横切る軌道
+          dx: random(18, 48) * (Math.random() < 0.5 ? -1 : 1),
+          dy: random(8, 24) * (Math.random() < 0.5 ? -1 : 1),
+          moveX: random(24, 58) * (Math.random() < 0.5 ? -1 : 1),
+          moveX2: random(20, 62) * (Math.random() < 0.5 ? -1 : 1),
 
-        delay: random(-18, 0),
+          duration:
+            speedMode === 'slow'
+              ? random(20, 35)
+              : speedMode === 'fast'
+                ? random(9, 17)
+                : random(14, 25),
 
-        opacity: random(0.35, 0.8),
+          // 開始位置・タイミングをばらけさせる
+          delay: random(-18, 0),
 
-        variant: randomInt(0, 3),
-        depth: random(0.05, 1)
-      })
+          opacity: random(0.45, 0.9),
+          variant: randomInt(0, 3),
+          depth: random(0.05, 1),
+
+          // trueなら途中で消える。falseなら消えずに画面外まで上がる
+          disappear
+        };
+      }
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen]);
+  }, [
+    currentScreen,
+    emptyCount,
+    emptyMinSize,
+    emptyMaxSize,
+    emptyDisappearChance,
+    speedMode
+  ]);
 
   // =======================================================
   // Firestore同期
@@ -2947,6 +2967,64 @@ export default function App() {
                   )}
                 </div>
               </div>
+
+              <div style={styles.settingSection}>
+                <div style={styles.settingLabel}>
+                  🫧 空バブル調整
+                </div>
+
+                <label style={styles.controlRow}>
+                  <span>個数：{emptyCount}</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={emptyCount}
+                    onChange={e =>
+                      setEmptyCount(Number(e.target.value))
+                    }
+                  />
+                </label>
+
+                <label style={styles.controlRow}>
+                  <span>最小サイズ：{emptyMinSize}px</span>
+                  <input
+                    type="range"
+                    min="4"
+                    max="50"
+                    value={emptyMinSize}
+                    onChange={e =>
+                      setEmptyMinSize(Number(e.target.value))
+                    }
+                  />
+                </label>
+
+                <label style={styles.controlRow}>
+                  <span>最大サイズ：{emptyMaxSize}px</span>
+                  <input
+                    type="range"
+                    min="20"
+                    max="140"
+                    value={emptyMaxSize}
+                    onChange={e =>
+                      setEmptyMaxSize(Number(e.target.value))
+                    }
+                  />
+                </label>
+
+                <label style={styles.controlRow}>
+                  <span>途中で消える確率：{emptyDisappearChance}%</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={emptyDisappearChance}
+                    onChange={e =>
+                      setEmptyDisappearChance(Number(e.target.value))
+                    }
+                  />
+                </label>
+              </div>
             </>
           )}
         </div>
@@ -2988,7 +3066,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `emptyBubbleRise ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${bubble.delay}s infinite`
+                    : `${bubble.disappear ? 'emptyBubbleRise' : 'emptyBubbleEscape'} ${bubble.duration}s cubic-bezier(.37,0,.63,1) ${bubble.delay}s infinite`
               }}
             >
               <EmptyBubble
@@ -3534,6 +3612,51 @@ export default function App() {
             100% {
               opacity: 0;
               transform: translate3d(calc(var(--moveX2) * -.45), -105vh, 0) rotate(calc(var(--rot) + var(--rotRange))) scale(calc(var(--depthScale) * .82));
+            }
+          }
+
+          @keyframes emptyBubbleEscape {
+            0% {
+              opacity: 0;
+              transform: translate3d(calc(var(--x1) * -0.35), 110vh, 0)
+                rotate(calc(var(--rot) - 12deg))
+                scale(calc(var(--depthScale) * .72));
+            }
+            12% {
+              opacity: .85;
+              transform: translate3d(calc(var(--x2) * .35), 82vh, 0)
+                rotate(calc(var(--rot) + 8deg))
+                scale(calc(var(--depthScale) * .9));
+            }
+            30% {
+              opacity: .8;
+              transform: translate3d(calc(var(--x1) * .9), 55vh, 0)
+                rotate(calc(var(--rot) - 6deg))
+                scale(calc(var(--depthScale) * 1));
+            }
+            50% {
+              opacity: .72;
+              transform: translate3d(calc(var(--x3) * -.8), 24vh, 0)
+                rotate(calc(var(--rot) + 14deg))
+                scale(calc(var(--depthScale) * 1.03));
+            }
+            72% {
+              opacity: .62;
+              transform: translate3d(calc(var(--x2) * .8), -18vh, 0)
+                rotate(calc(var(--rot) - 10deg))
+                scale(calc(var(--depthScale) * .98));
+            }
+            88% {
+              opacity: .5;
+              transform: translate3d(calc(var(--x3) * -.55), -65vh, 0)
+                rotate(calc(var(--rot) + 12deg))
+                scale(calc(var(--depthScale) * .9));
+            }
+            100% {
+              opacity: .34;
+              transform: translate3d(calc(var(--x1) * .7), -135vh, 0)
+                rotate(calc(var(--rot) - 16deg))
+                scale(calc(var(--depthScale) * .78));
             }
           }
 
@@ -4130,6 +4253,15 @@ const styles = {
 
   settingSection: {
     marginBottom: 25
+  },
+
+  controlRow: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    marginTop: 10,
+    color: '#fff',
+    fontSize: 13
   },
 
   settingLabel: {
