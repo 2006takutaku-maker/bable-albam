@@ -3043,9 +3043,9 @@ export default function App() {
                   `${bubble.rotRange || 14}deg`,
 
                 '--x0':
-                  `${-(bubble.moveX || 22) * 0.15}vw`,
+                  `${(bubble.entryX ?? 0)}vw`,
                 '--y0':
-                  `${(bubble.moveY || 16) * 0.55}vh`,
+                  '112vh',
                 '--x1':
                   `${bubble.moveX || 22}vw`,
                 '--y1':
@@ -3174,9 +3174,9 @@ export default function App() {
                     `${bubble.rotRange || 14}deg`,
 
                   '--px0':
-                    `${-(bubble.moveX || 22) * 0.85}vw`,
+                    `${bubble.entryX ?? 0}vw`,
                   '--py0':
-                    `${bubble.moveY || 16}vh`,
+                    '112vh',
                   '--px1':
                     `${(bubble.moveX || 22) * 0.15}vw`,
                   '--py1':
@@ -3198,9 +3198,9 @@ export default function App() {
                   '--py5':
                     `${(bubble.moveY || 16) * 0.35}vh`,
                   '--tx0':
-                    `${-(bubble.moveX || 22) * 0.75}vw`,
+                    `${bubble.entryX ?? 0}vw`,
                   '--ty0':
-                    '22vh',
+                    '112vh',
                   '--tx1':
                     `${(bubble.moveX || 22) * 0.7}vw`,
                   '--ty1':
@@ -3569,176 +3569,115 @@ export default function App() {
            * 空バブル：画面全体を大きな楕円軌道で漂う。
            * 0%と100%を同じ位置にして、ループの継ぎ目を目立たせない。
            */
+          /* 空バブル：画面下から出て、画面全体を大きく漂い、上へ抜けて消える */
           @keyframes emptyDrift {
             0% {
               opacity: 0;
-              transform: translate3d(
-                var(--x0),
-                var(--y0),
-                0
-              ) rotate(var(--rot)) scale(0.96);
+              transform: translate3d(var(--x0), var(--y0), 0) rotate(var(--rot)) scale(0.82);
             }
-
-            16% {
-              opacity: 0.65;
-              transform: translate3d(
-                var(--x1),
-                var(--y1),
-                0
-              ) rotate(calc(var(--rot) + var(--rr))) scale(1.02);
+            10% {
+              opacity: 0.55;
+              transform: translate3d(calc(var(--x1) * 0.25), calc(var(--y1) * 0.55), 0) rotate(calc(var(--rot) + 4deg)) scale(0.96);
             }
-
-            33% {
+            24% {
               opacity: 0.82;
-              transform: translate3d(
-                var(--x2),
-                var(--y2),
-                0
-              ) rotate(calc(var(--rot) - var(--rr))) scale(0.99);
+              transform: translate3d(var(--x1), var(--y1), 0) rotate(calc(var(--rot) + var(--rr))) scale(1.02);
             }
-
-            50% {
+            42% {
               opacity: 0.9;
-              transform: translate3d(
-                var(--x3),
-                var(--y3),
-                0
-              ) rotate(calc(var(--rot) + 8deg)) scale(1.04);
+              transform: translate3d(var(--x2), var(--y2), 0) rotate(calc(var(--rot) - var(--rr))) scale(1.06);
             }
-
-            67% {
-              opacity: 0.72;
-              transform: translate3d(
-                var(--x4),
-                var(--y4),
-                0
-              ) rotate(calc(var(--rot) - 7deg)) scale(0.98);
+            60% {
+              opacity: 0.78;
+              transform: translate3d(var(--x3), var(--y3), 0) rotate(calc(var(--rot) + 10deg)) scale(0.98);
             }
-
-            84% {
-              opacity: 0.45;
-              transform: translate3d(
-                var(--x5),
-                var(--y5),
-                0
-              ) rotate(calc(var(--rot) + 6deg)) scale(1.02);
+            76% {
+              opacity: 0.62;
+              transform: translate3d(var(--x4), var(--y4), 0) rotate(calc(var(--rot) - 8deg)) scale(1.04);
             }
-
+            90% {
+              opacity: 0.28;
+              transform: translate3d(var(--x5), -42vh, 0) rotate(calc(var(--rot) + 12deg)) scale(0.94);
+            }
             100% {
-              transform: translate3d(
-                var(--x0),
-                var(--y0),
-                0
-              ) rotate(var(--rot)) scale(0.96);
+              opacity: 0;
+              transform: translate3d(calc(var(--x5) * 0.6), -118vh, 0) rotate(calc(var(--rot) + 18deg)) scale(0.78);
             }
           }
 
-          /* 写真：空バブルより大きく、ゆっくり画面を横断する */
+          /* 写真：下から出現 → 大きく漂う → 上へ抜けて消える */
           @keyframes photoDrift {
             0% {
               opacity: 0;
-              transform: translate3d(
-                var(--px0),
-                var(--py0),
-                0
-              ) rotate(var(--rot)) scale(0.96);
+              transform: translate3d(var(--px0), var(--py0), 0) rotate(var(--rot)) scale(0.78);
             }
-
-            18% {
-              opacity: 0.8;
-              transform: translate3d(
-                var(--px1),
-                var(--py1),
-                0
-              ) rotate(calc(var(--rot) + 7deg)) scale(1.01);
+            9% {
+              opacity: 0.5;
+              transform: translate3d(calc(var(--px1) * 0.35), 48vh, 0) rotate(calc(var(--rot) + 4deg)) scale(0.92);
             }
-
-            36% {
+            22% {
+              opacity: 0.92;
+              transform: translate3d(var(--px1), var(--py1), 0) rotate(calc(var(--rot) + 7deg)) scale(1.01);
+            }
+            40% {
               opacity: 1;
-              transform: translate3d(
-                var(--px2),
-                var(--py2),
-                0
-              ) rotate(calc(var(--rot) - var(--rr))) scale(1.04);
+              transform: translate3d(var(--px2), var(--py2), 0) rotate(calc(var(--rot) - var(--rr))) scale(1.06);
             }
-
-            54% {
-              opacity: 1;
-              transform: translate3d(
-                var(--px3),
-                var(--py3),
-                0
-              ) rotate(calc(var(--rot) + 8deg)) scale(0.98);
+            58% {
+              opacity: 0.98;
+              transform: translate3d(var(--px3), var(--py3), 0) rotate(calc(var(--rot) + 9deg)) scale(0.98);
             }
-
-            72% {
-              opacity: 0.85;
-              transform: translate3d(
-                var(--px4),
-                var(--py4),
-                0
-              ) rotate(calc(var(--rot) - 8deg)) scale(1.03);
+            75% {
+              opacity: 0.82;
+              transform: translate3d(var(--px4), var(--py4), 0) rotate(calc(var(--rot) - 8deg)) scale(1.03);
             }
-
-            88% {
-              opacity: 0.45;
-              transform: translate3d(
-                var(--px5),
-                var(--py5),
-                0
-              ) rotate(calc(var(--rot) + 5deg)) scale(1);
+            90% {
+              opacity: 0.34;
+              transform: translate3d(var(--px5), -42vh, 0) rotate(calc(var(--rot) + 6deg)) scale(0.94);
             }
-
             100% {
-              transform: translate3d(
-                var(--px0),
-                var(--py0),
-                0
-              ) rotate(var(--rot)) scale(0.96);
+              opacity: 0;
+              transform: translate3d(calc(var(--px5) * 0.7), -120vh, 0) rotate(calc(var(--rot) + 12deg)) scale(0.78);
             }
           }
 
-          /* 文字：出現位置はバラバラ。最後だけ中央の文字列に収束して停止 */
-          /* 文字：バラバラに現れて中央で言葉になり、最後に消えて次の周期へ */
+          /* 文字：下からバラバラに登場 → 大きく漂う → 中央で言葉になる → 消える */
           @keyframes textGather {
             0% {
               opacity: 0;
-              transform: translate3d(var(--tx0), var(--ty0), 0) rotate(calc(var(--rot) - 18deg)) scale(0.72);
+              transform: translate3d(var(--tx0), var(--ty0), 0) rotate(calc(var(--rot) - 18deg)) scale(0.68);
             }
-
-            14% {
-              opacity: 0.35;
-              transform: translate3d(var(--tx1), var(--ty1), 0) rotate(calc(var(--rot) + 12deg)) scale(0.88);
+            10% {
+              opacity: 0.4;
+              transform: translate3d(calc(var(--tx1) * 0.5), 52vh, 0) rotate(calc(var(--rot) + 10deg)) scale(0.84);
             }
-
-            30% {
+            24% {
+              opacity: 0.95;
+              transform: translate3d(var(--tx1), var(--ty1), 0) rotate(calc(var(--rot) + 12deg)) scale(0.98);
+            }
+            40% {
               opacity: 1;
-              transform: translate3d(var(--tx2), var(--ty2), 0) rotate(calc(var(--rot) - 10deg)) scale(1.02);
+              transform: translate3d(var(--tx2), var(--ty2), 0) rotate(calc(var(--rot) - 10deg)) scale(1.05);
             }
-
-            48% {
+            54% {
               opacity: 1;
-              transform: translate3d(var(--tx3), var(--ty3), 0) rotate(4deg) scale(1.01);
+              transform: translate3d(var(--tx3), var(--ty3), 0) rotate(4deg) scale(1.02);
             }
-
-            58% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-            }
-
-            78% {
+            62% {
               opacity: 1;
               transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
-
-            92% {
-              opacity: 0.35;
-              transform: translate3d(0, -3vh, 0) rotate(3deg) scale(0.96);
+            76% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
             }
-
+            88% {
+              opacity: 0.55;
+              transform: translate3d(0, -4vh, 0) rotate(4deg) scale(0.97);
+            }
             100% {
               opacity: 0;
-              transform: translate3d(0, -8vh, 0) rotate(6deg) scale(0.9);
+              transform: translate3d(0, -18vh, 0) rotate(8deg) scale(0.86);
             }
           }
 
