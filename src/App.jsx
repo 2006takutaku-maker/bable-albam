@@ -1293,7 +1293,7 @@ export default function App() {
     genre
   ) => {
     const size =
-      randomInt(120, 230);
+      randomInt(70, 270);
 
     const newBubble = {
       type: 'photo',
@@ -1387,7 +1387,7 @@ export default function App() {
         ),
 
       size:
-        randomInt(140, 240),
+        randomInt(70, 270),
 
       rotation:
         random(-10, 10),
@@ -3008,9 +3008,15 @@ export default function App() {
                   top: `${targetTop}%`,
 
                   width:
-                    bubble.size,
+                    bubble.size ||
+                    (bubble.type === 'photo'
+                      ? randomInt(70, 270)
+                      : 90),
                   height:
-                    bubble.size,
+                    bubble.size ||
+                    (bubble.type === 'photo'
+                      ? randomInt(70, 270)
+                      : 90),
 
                   opacity:
                     bubble.opacity ??
@@ -3050,7 +3056,7 @@ export default function App() {
                     isPaused
                       ? 'none'
                       : bubble.type === 'text'
-                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || -2}s infinite alternate`
+                        ? `textAssembleFade ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || -2}s infinite`
                         : `photoRiseAndDrift ${Math.max(10, bubble.duration || 20)}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
                 }}
               >
@@ -3624,6 +3630,37 @@ export default function App() {
                   0
                 )
                 rotate(calc(var(--rot) - 8deg));
+            }
+          }
+
+          @keyframes textAssembleFade {
+            0% {
+              opacity: 0;
+              transform: translate3d(-18vw, 65vh, 0) rotate(-12deg) scale(.72);
+            }
+            14% {
+              opacity: 1;
+              transform: translate3d(10vw, 38vh, 0) rotate(8deg) scale(.88);
+            }
+            30% {
+              opacity: 1;
+              transform: translate3d(-12vw, 18vh, 0) rotate(-6deg) scale(.96);
+            }
+            48% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+            66% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+            82% {
+              opacity: .72;
+              transform: translate3d(8vw, -18vh, 0) rotate(7deg) scale(.92);
+            }
+            100% {
+              opacity: 0;
+              transform: translate3d(-12vw, -65vh, 0) rotate(-10deg) scale(.7);
             }
           }
 
