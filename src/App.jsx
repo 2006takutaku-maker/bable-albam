@@ -793,14 +793,6 @@ export default function App() {
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
 
-  // 空バブルの表示数。設定画面から変更できます。
-  const [emptyBubbleCount, setEmptyBubbleCount] =
-    useState(() =>
-      typeof window !== 'undefined' && window.innerWidth < 700
-        ? 18
-        : 28
-    );
-
   // -------------------------------------------------------
   // WakeLock
   // -------------------------------------------------------
@@ -851,33 +843,34 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
+    const count = window.innerWidth < 700
+      ? 18
+      : 28;
+
     const generated = Array.from(
-      { length: emptyBubbleCount },
+      { length: count },
       (_, i) => ({
         id: `empty-${makeId()}-${i}`,
         type: 'empty',
 
-        // 画面全体にバラけさせる
-        left: random(2, 96),
-        top: 0,
+        left: random(4, 94),
+        top: random(5, 92),
 
         size: randomInt(55, 155),
 
-        rotation: random(-20, 20),
+        rotation: random(-30, 30),
 
-        // 大きな連続軌道。vw/vhとしてCSSに渡す。
-        moveX: random(18, 30),
-        moveY: random(12, 22),
-        rotRange: random(8, 22),
+        dx: random(-30, 30),
+        dy: random(-25, 25),
 
         duration:
           speedMode === 'slow'
-            ? random(24, 40)
+            ? random(20, 35)
             : speedMode === 'fast'
-              ? random(10, 18)
-              : random(16, 28),
+              ? random(9, 17)
+              : random(14, 25),
 
-        delay: random(-28, 0),
+        delay: random(-20, 0),
 
         opacity: random(0.35, 0.8),
 
@@ -886,7 +879,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen, emptyBubbleCount, speedMode]);
+  }, [currentScreen]);
 
   // =======================================================
   // Firestore同期
@@ -1319,10 +1312,10 @@ export default function App() {
         randomInt(10, 90),
 
       left:
-        random(8, 92),
+        random(10, 90),
 
       top:
-        random(25, 78),
+        52,
 
       rotation:
         random(-15, 15),
@@ -1332,15 +1325,6 @@ export default function App() {
 
       dy:
         random(-30, 30),
-
-      moveX:
-        random(18, 30),
-
-      moveY:
-        random(14, 24),
-
-      rotRange:
-        random(8, 18),
 
       duration:
         speedMode === 'slow'
@@ -1389,25 +1373,32 @@ export default function App() {
       type: 'photo',
 
       left:
-        random(8, 92),
+        clamp(
+          50 + random(-10, 10),
+          5,
+          95
+        ),
 
       top:
-        random(22, 78),
+        52,
 
       size:
-        randomInt(140, 240),
+        randomInt(105, 250),
 
       rotation:
-        random(-10, 10),
+        random(-18, 18),
 
+      // 写真ごとに違う大きな軌道
       moveX:
-        random(18, 30),
-
+        random(18, 42) * (Math.random() < 0.5 ? -1 : 1),
       moveY:
-        random(14, 24),
-
+        random(10, 30) * (Math.random() < 0.5 ? -1 : 1),
+      moveX2:
+        random(20, 48) * (Math.random() < 0.5 ? -1 : 1),
+      moveY2:
+        random(12, 34) * (Math.random() < 0.5 ? -1 : 1),
       rotRange:
-        random(8, 18),
+        random(8, 28),
 
       duration:
         speedMode === 'slow'
@@ -1487,28 +1478,31 @@ export default function App() {
               randomInt(75, 115),
 
             left:
-              random(8, 92),
+              random(10, 90),
 
             top:
-              random(25, 78),
+              52,
 
             rotation:
               random(-25, 25),
+
+            // 文字ごとに別々の軌道・揺れ幅
+            moveX:
+              random(14, 38) * (Math.random() < 0.5 ? -1 : 1),
+            moveY:
+              random(10, 28) * (Math.random() < 0.5 ? -1 : 1),
+            moveX2:
+              random(16, 42) * (Math.random() < 0.5 ? -1 : 1),
+            moveY2:
+              random(12, 32) * (Math.random() < 0.5 ? -1 : 1),
+            rotRange:
+              random(6, 24),
 
             dx:
               random(-35, 35),
 
             dy:
               random(-35, 35),
-
-            moveX:
-              random(18, 30),
-
-            moveY:
-              random(14, 24),
-
-            rotRange:
-              random(10, 22),
 
             duration:
               speedMode === 'slow'
@@ -2928,74 +2922,6 @@ export default function App() {
                   )}
                 </div>
               </div>
-
-              <div
-                style={
-                  styles.settingSection
-                }
-              >
-                <div
-                  style={
-                    styles.settingLabel
-                  }
-                >
-                  🫧 バブルの量: {emptyBubbleCount}
-                </div>
-
-                <input
-                  type="range"
-                  min="0"
-                  max="120"
-                  step="1"
-                  value={emptyBubbleCount}
-                  onChange={e =>
-                    setEmptyBubbleCount(
-                      Number(e.target.value)
-                    )
-                  }
-                  style={{
-                    width: '100%'
-                  }}
-                />
-
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    marginTop: 8,
-                    alignItems: 'center'
-                  }}
-                >
-                  <input
-                    type="number"
-                    min="0"
-                    max="120"
-                    value={emptyBubbleCount}
-                    onChange={e =>
-                      setEmptyBubbleCount(
-                        Math.max(
-                          0,
-                          Math.min(
-                            120,
-                            Number(e.target.value) || 0
-                          )
-                        )
-                      )
-                    }
-                    style={{
-                      width: 80,
-                      padding: '6px 8px',
-                      borderRadius: 5,
-                      border: '1px solid #555',
-                      background: '#222',
-                      color: '#fff'
-                    }}
-                  />
-                  <span style={{ fontSize: 11, color: '#aaa' }}>
-                    0〜120個
-                  </span>
-                </div>
-              </div>
             </>
           )}
         </div>
@@ -3030,47 +2956,19 @@ export default function App() {
                   bubble.opacity,
                 zIndex: 1,
 
-                '--mx':
-                  `${bubble.moveX || 22}vw`,
+                '--dx':
+                  `${bubble.dx}px`,
 
-                '--my':
-                  `${bubble.moveY || 16}vh`,
+                '--dy':
+                  `${bubble.dy}px`,
 
                 '--rot':
-                  `${bubble.rotation || 0}deg`,
-
-                '--rr':
-                  `${bubble.rotRange || 14}deg`,
-
-                '--x0':
-                  `${(bubble.entryX ?? 0)}vw`,
-                '--y0':
-                  '115vh',
-                '--x1':
-                  `${bubble.moveX || 22}vw`,
-                '--y1':
-                  `${-(bubble.moveY || 16) * 0.25}vh`,
-                '--x2':
-                  `${(bubble.moveX || 22) * 0.35}vw`,
-                '--y2':
-                  `${-(bubble.moveY || 16)}vh`,
-                '--x3':
-                  `${-(bubble.moveX || 22) * 0.95}vw`,
-                '--y3':
-                  `${-(bubble.moveY || 16) * 0.15}vh`,
-                '--x4':
-                  `${-(bubble.moveX || 22) * 0.3}vw`,
-                '--y4':
-                  `${bubble.moveY || 16}vh`,
-                '--x5':
-                  `${(bubble.moveX || 22) * 0.85}vw`,
-                '--y5':
-                  `${(bubble.moveY || 16) * 0.25}vh`,
+                  `${bubble.rotation}deg`,
 
                 animation:
                   isPaused
                     ? 'none'
-                    : `emptyDrift ${bubble.duration}s linear ${bubble.delay}s infinite`
+                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
               }}
             >
               <EmptyBubble
@@ -3100,17 +2998,22 @@ export default function App() {
               selectedBubbleId ===
               bubble.id;
 
+            // 停止中は文字も写真も実際の座標をそのまま使う。
+            // これで停止中に好きな場所へドラッグできる。
             const targetLeft =
-              textTarget?.left ??
-              bubble.left;
+              isPaused
+                ? bubble.left
+                : (textTarget?.left ?? bubble.left);
 
             const targetTop =
-              textTarget?.top ??
-              bubble.top;
+              isPaused
+                ? bubble.top
+                : (textTarget?.top ?? bubble.top);
 
             const targetRotation =
-              textTarget?.rotation ??
-              bubble.rotation;
+              isPaused
+                ? bubble.rotation
+                : (textTarget?.rotation ?? bubble.rotation);
 
             return (
               <div
@@ -3161,67 +3064,32 @@ export default function App() {
                   transformOrigin:
                     'center',
 
-                  '--mx':
-                    `${bubble.moveX || 22}vw`,
+                  '--dx':
+                    `${bubble.dx || 20}px`,
 
-                  '--my':
-                    `${bubble.moveY || 16}vh`,
+                  '--dy':
+                    `${bubble.dy || 20}px`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
-                  '--rr':
-                    `${bubble.rotRange || 14}deg`,
-
-                  '--px0':
-                    `${bubble.entryX ?? 0}vw`,
-                  '--py0':
-                    '112vh',
-                  '--px1':
-                    `${(bubble.moveX || 22) * 0.15}vw`,
-                  '--py1':
-                    `${-(bubble.moveY || 16) * 0.9}vh`,
-                  '--px2':
-                    `${bubble.moveX || 22}vw`,
-                  '--py2':
-                    `${-(bubble.moveY || 16) * 0.05}vh`,
-                  '--px3':
-                    `${(bubble.moveX || 22) * 0.15}vw`,
-                  '--py3':
-                    `${bubble.moveY || 16}vh`,
-                  '--px4':
-                    `${-(bubble.moveX || 22)}vw`,
-                  '--py4':
-                    `${-(bubble.moveY || 16) * 0.55}vh`,
-                  '--px5':
-                    `${-(bubble.moveX || 22) * 0.25}vw`,
-                  '--py5':
-                    `${(bubble.moveY || 16) * 0.35}vh`,
-                  '--tx0':
-                    `${bubble.entryX ?? 0}vw`,
-                  '--ty0':
-                    '112vh',
-                  '--tx1':
-                    `${(bubble.moveX || 22) * 0.7}vw`,
-                  '--ty1':
-                    `${-(bubble.moveY || 16) * 0.5}vh`,
-                  '--tx2':
-                    `${-(bubble.moveX || 22) * 0.45}vw`,
-                  '--ty2':
-                    `${(bubble.moveY || 16) * 0.75}vh`,
-                  '--tx3':
-                    `${(bubble.moveX || 22) * 0.25}vw`,
-                  '--ty3':
-                    `${-(bubble.moveY || 16) * 0.25}vh`,
+                  // バブルごとに違う軌道をCSSへ渡す
+                  '--moveX':
+                    `${bubble.moveX ?? bubble.dx ?? 20}px`,
+                  '--moveY':
+                    `${bubble.moveY ?? bubble.dy ?? 20}px`,
+                  '--moveX2':
+                    `${bubble.moveX2 ?? -(bubble.dx ?? 20)}px`,
+                  '--moveY2':
+                    `${bubble.moveY2 ?? (bubble.dy ?? 20)}px`,
+                  '--rotRange':
+                    `${bubble.rotRange ?? 14}deg`,
 
                   animation:
                     isPaused ||
                     bubble.fixed
                       ? 'none'
-                      : bubble.type ===
-                        'text'
-                        ? `textGather ${Math.max(9, Math.min(18, (bubble.duration || 14) * 0.65))}s cubic-bezier(.22,.8,.2,1) ${Math.max(0, bubble.delay || 0)}s infinite`
-                        : `photoDrift ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                      : `bubbleRiseNatural ${bubble.duration || 16}s cubic-bezier(.22,.7,.25,1) ${Math.max(0, bubble.delay || 0)}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3565,119 +3433,77 @@ export default function App() {
             font-family: inherit;
           }
 
-          /*
-           * 空バブル：画面全体を大きな楕円軌道で漂う。
-           * 0%と100%を同じ位置にして、ループの継ぎ目を目立たせない。
-           */
-          /* 空バブル：画面下から出て、画面全体を大きく漂い、上へ抜けて消える */
-          @keyframes emptyDrift {
+          @keyframes bubbleRiseNatural {
             0% {
               opacity: 0;
-              transform: translate3d(var(--x0), var(--y0), 0) rotate(var(--rot)) scale(0.82);
+              transform: translate3d(
+                calc(var(--moveX) * -0.25),
+                112vh,
+                0
+              ) scale(0.72) rotate(calc(var(--rot) - var(--rotRange)));
             }
-            10% {
-              opacity: 0.55;
-              transform: translate3d(calc(var(--x1) * 0.25), calc(var(--y1) * 0.55), 0) rotate(calc(var(--rot) + 4deg)) scale(0.96);
-            }
-            24% {
-              opacity: 0.82;
-              transform: translate3d(var(--x1), var(--y1), 0) rotate(calc(var(--rot) + var(--rr))) scale(1.02);
-            }
-            42% {
-              opacity: 0.9;
-              transform: translate3d(var(--x2), var(--y2), 0) rotate(calc(var(--rot) - var(--rr))) scale(1.06);
-            }
-            60% {
-              opacity: 0.78;
-              transform: translate3d(var(--x3), var(--y3), 0) rotate(calc(var(--rot) + 10deg)) scale(0.98);
-            }
-            76% {
-              opacity: 0.62;
-              transform: translate3d(var(--x4), var(--y4), 0) rotate(calc(var(--rot) - 8deg)) scale(1.04);
-            }
-            90% {
-              opacity: 0.28;
-              transform: translate3d(var(--x5), -42vh, 0) rotate(calc(var(--rot) + 12deg)) scale(0.94);
-            }
-            100% {
-              opacity: 0;
-              transform: translate3d(calc(var(--x5) * 0.6), -125vh, 0) rotate(calc(var(--rot) + 18deg)) scale(0.78);
-            }
-          }
 
-          /* 写真：下から出現 → 大きく漂う → 上へ抜けて消える */
-          @keyframes photoDrift {
-            0% {
-              opacity: 0;
-              transform: translate3d(var(--px0), var(--py0), 0) rotate(var(--rot)) scale(0.78);
-            }
-            9% {
-              opacity: 0.5;
-              transform: translate3d(calc(var(--px1) * 0.35), 48vh, 0) rotate(calc(var(--rot) + 4deg)) scale(0.92);
-            }
-            22% {
-              opacity: 0.92;
-              transform: translate3d(var(--px1), var(--py1), 0) rotate(calc(var(--rot) + 7deg)) scale(1.01);
-            }
-            40% {
-              opacity: 1;
-              transform: translate3d(var(--px2), var(--py2), 0) rotate(calc(var(--rot) - var(--rr))) scale(1.06);
-            }
-            58% {
-              opacity: 0.98;
-              transform: translate3d(var(--px3), var(--py3), 0) rotate(calc(var(--rot) + 9deg)) scale(0.98);
-            }
-            75% {
-              opacity: 0.82;
-              transform: translate3d(var(--px4), var(--py4), 0) rotate(calc(var(--rot) - 8deg)) scale(1.03);
-            }
-            90% {
-              opacity: 0.34;
-              transform: translate3d(var(--px5), -42vh, 0) rotate(calc(var(--rot) + 6deg)) scale(0.94);
-            }
-            100% {
-              opacity: 0;
-              transform: translate3d(calc(var(--px5) * 0.7), -120vh, 0) rotate(calc(var(--rot) + 12deg)) scale(0.78);
-            }
-          }
-
-          /* 文字：下からバラバラに登場 → 大きく漂う → 中央で言葉になる → 消える */
-          @keyframes textGather {
-            0% {
-              opacity: 0;
-              transform: translate3d(var(--tx0), var(--ty0), 0) rotate(calc(var(--rot) - 18deg)) scale(0.68);
-            }
             10% {
-              opacity: 0.4;
-              transform: translate3d(calc(var(--tx1) * 0.5), 52vh, 0) rotate(calc(var(--rot) + 10deg)) scale(0.84);
-            }
-            24% {
-              opacity: 0.95;
-              transform: translate3d(var(--tx1), var(--ty1), 0) rotate(calc(var(--rot) + 12deg)) scale(0.98);
-            }
-            40% {
               opacity: 1;
-              transform: translate3d(var(--tx2), var(--ty2), 0) rotate(calc(var(--rot) - 10deg)) scale(1.05);
+              transform: translate3d(
+                calc(var(--moveX) * 0.35),
+                72vh,
+                0
+              ) scale(0.9) rotate(calc(var(--rot) + var(--rotRange) * 0.25));
             }
-            54% {
+
+            27% {
               opacity: 1;
-              transform: translate3d(var(--tx3), var(--ty3), 0) rotate(4deg) scale(1.02);
+              transform: translate3d(
+                calc(var(--moveX2) * 0.65),
+                38vh,
+                0
+              ) scale(0.98) rotate(calc(var(--rot) - var(--rotRange) * 0.45));
             }
-            62% {
+
+            46% {
               opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+              transform: translate3d(
+                calc(var(--moveX) * -0.85),
+                8vh,
+                0
+              ) scale(1.03) rotate(calc(var(--rot) + var(--rotRange) * 0.65));
             }
-            76% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+
+            63% {
+              opacity: 0.96;
+              transform: translate3d(
+                calc(var(--moveX2) * 0.8),
+                -18vh,
+                0
+              ) scale(1.01) rotate(calc(var(--rot) - var(--rotRange) * 0.25));
             }
-            88% {
-              opacity: 0.55;
-              transform: translate3d(0, -4vh, 0) rotate(4deg) scale(0.97);
+
+            78% {
+              opacity: 0.7;
+              transform: translate3d(
+                calc(var(--moveX) * -0.65),
+                -48vh,
+                0
+              ) scale(0.98) rotate(calc(var(--rot) + var(--rotRange) * 0.55));
             }
+
+            90% {
+              opacity: 0.3;
+              transform: translate3d(
+                calc(var(--moveX2) * 0.5),
+                -78vh,
+                0
+              ) scale(0.9) rotate(calc(var(--rot) - var(--rotRange) * 0.4));
+            }
+
             100% {
               opacity: 0;
-              transform: translate3d(0, -18vh, 0) rotate(8deg) scale(0.86);
+              transform: translate3d(
+                calc(var(--moveX) * 0.8),
+                -125vh,
+                0
+              ) scale(0.78) rotate(calc(var(--rot) + var(--rotRange)));
             }
           }
 
