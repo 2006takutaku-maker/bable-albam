@@ -761,6 +761,9 @@ export default function App() {
   const [selectedImage, setSelectedImage] =
     useState(null);
 
+  const [photoComment, setPhotoComment] =
+    useState('');
+
   const [isTocOpen, setIsTocOpen] =
     useState(false);
 
@@ -792,15 +795,6 @@ export default function App() {
 
   const [emptyBubbles, setEmptyBubbles] =
     useState([]);
-
-  const [emptyCount, setEmptyCount] =
-    useState(28);
-
-  const [emptyMinSize, setEmptyMinSize] =
-    useState(35);
-
-  const [emptyMaxSize, setEmptyMaxSize] =
-    useState(120);
 
   // -------------------------------------------------------
   // WakeLock
@@ -852,7 +846,9 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
-    const count = Math.max(0, emptyCount);
+    const count = window.innerWidth < 700
+      ? 18
+      : 28;
 
     const generated = Array.from(
       { length: count },
@@ -863,7 +859,7 @@ export default function App() {
         left: random(4, 94),
         top: random(5, 92),
 
-        size: randomInt(emptyMinSize, Math.max(emptyMinSize, emptyMaxSize)),
+        size: randomInt(55, 155),
 
         rotation: random(-30, 30),
 
@@ -886,7 +882,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen, speedMode, emptyCount, emptyMinSize, emptyMaxSize]);
+  }, [currentScreen]);
 
   // =======================================================
   // Firestore同期
@@ -1300,7 +1296,7 @@ export default function App() {
     genre
   ) => {
     const size =
-      randomInt(70, 270);
+      randomInt(120, 230);
 
     const newBubble = {
       type: 'photo',
@@ -1394,7 +1390,7 @@ export default function App() {
         ),
 
       size:
-        randomInt(70, 270),
+        randomInt(140, 240),
 
       rotation:
         random(-10, 10),
@@ -1590,6 +1586,28 @@ export default function App() {
         setSelectedBubbleId(null);
       }
     };
+
+  // 写真を開く。拡大表示とコメント編集で同じ写真データを使う。
+  const openPhoto = bubble => {
+    if (!bubble?.src) return;
+    setSelectedImage(bubble);
+    setPhotoComment(bubble.comment || '');
+  };
+
+  const savePhotoComment = async () => {
+    if (!selectedImage?.id) return;
+
+    await updateBubble(
+      selectedImage.id,
+      { comment: photoComment }
+    );
+
+    setSelectedImage(prev =>
+      prev
+        ? { ...prev, comment: photoComment }
+        : prev
+    );
+  };
 
   // =======================================================
   // Clear
@@ -2713,6 +2731,36 @@ export default function App() {
                           }
                         />
 
+                        <button
+                          type="button"
+                          aria-label="この写真を削除"
+                          style={
+                            styles.thumbDeleteBtn
+                          }
+                          onClick={async e => {
+                            e.stopPropagation();
+
+                            if (
+                              !window.confirm(
+                                'この写真だけ削除しますか？'
+                              )
+                            ) {
+                              return;
+                            }
+
+                            await deleteBubble(b.id);
+
+                            if (
+                              selectedImage?.id === b.id
+                            ) {
+                              setSelectedImage(null);
+                              setPhotoComment('');
+                            }
+                          }}
+                        >
+                          ×
+                        </button>
+
                         <span
                           style={
                             styles.thumbAuthorText
@@ -2900,52 +2948,6 @@ export default function App() {
                   )}
                 </div>
               </div>
-              <div
-                style={
-                  styles.settingSection
-                }
-              >
-                <div style={styles.settingLabel}>🫧 空バブル調整</div>
-
-                <label style={styles.controlRow}>
-                  個数：{emptyCount}
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={emptyCount}
-                    onChange={e =>
-                      setEmptyCount(Number(e.target.value))
-                    }
-                  />
-                </label>
-
-                <label style={styles.controlRow}>
-                  最小サイズ：{emptyMinSize}px
-                  <input
-                    type="range"
-                    min="5"
-                    max="80"
-                    value={emptyMinSize}
-                    onChange={e =>
-                      setEmptyMinSize(Number(e.target.value))
-                    }
-                  />
-                </label>
-
-                <label style={styles.controlRow}>
-                  最大サイズ：{emptyMaxSize}px
-                  <input
-                    type="range"
-                    min="30"
-                    max="180"
-                    value={emptyMaxSize}
-                    onChange={e =>
-                      setEmptyMaxSize(Number(e.target.value))
-                    }
-                  />
-                </label>
-              </div>
             </>
           )}
         </div>
@@ -2980,17 +2982,19 @@ export default function App() {
                   bubble.opacity,
                 zIndex: 1,
 
-                '--ex1': `${random(18, 55) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--ex2': `${random(28, 68) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--ex3': `${random(20, 62) * (Math.random() < 0.5 ? -1 : 1)}vw`,
-                '--er1': `${random(-25, 25)}deg`,
-                '--er2': `${random(-35, 35)}deg`,
-                '--er3': `${random(-25, 25)}deg`,
+                '--dx':
+                  `${bubble.dx}px`,
+
+                '--dy':
+                  `${bubble.dy}px`,
+
+                '--rot':
+                  `${bubble.rotation}deg`,
 
                 animation:
                   isPaused
                     ? 'none'
-                    : `emptyBubbleFloat ${Math.max(20, bubble.duration || 26)}s linear ${-Math.abs(Number(bubble.delay) || 3)}s infinite`
+                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
               }}
             >
               <EmptyBubble
@@ -3045,9 +3049,7 @@ export default function App() {
                 }
                 onClick={() => {
                   if (!isPaused) {
-                    setSelectedImage(
-                      bubble.src
-                    );
+                    openPhoto(bubble);
                   } else {
                     setSelectedBubbleId(
                       bubble.id
@@ -3061,15 +3063,9 @@ export default function App() {
                   top: `${targetTop}%`,
 
                   width:
-                    bubble.size ||
-                    (bubble.type === 'photo'
-                      ? randomInt(70, 270)
-                      : 90),
+                    bubble.size,
                   height:
-                    bubble.size ||
-                    (bubble.type === 'photo'
-                      ? randomInt(70, 270)
-                      : 90),
+                    bubble.size,
 
                   opacity:
                     bubble.opacity ??
@@ -3088,29 +3084,22 @@ export default function App() {
                     'center',
 
                   '--dx':
-                    `${bubble.dx || 25}vw`,
+                    `${bubble.dx || 20}px`,
 
                   '--dy':
-                    `${bubble.dy || 15}vh`,
-
-                  '--dx2':
-                    `${bubble.moveX2 || -35}vw`,
-
-                  '--dy2':
-                    `${bubble.moveY2 || 18}vh`,
+                    `${bubble.dy || 20}px`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
-                  '--rot2':
-                    `${(bubble.rotation || 0) + 18}deg`,
-
                   animation:
-                    isPaused
+                    isPaused ||
+                    bubble.fixed
                       ? 'none'
-                      : bubble.type === 'text'
-                        ? `textAssembleFade ${bubble.duration || 20}s cubic-bezier(.37,0,.63,1) ${bubble.delay || -2}s infinite`
-                        : `photoRiseAndDrift ${Math.max(10, bubble.duration || 20)}s cubic-bezier(.37,0,.63,1) ${-Math.abs(Number(bubble.delay) || 2)}s infinite`
+                      : bubble.type ===
+                        'text'
+                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
+                        : `freeFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
                 }}
               >
                 {bubble.type ===
@@ -3123,23 +3112,6 @@ export default function App() {
                       bubble.size
                     }
                   />
-                )}
-
-                {bubble.type === 'photo' && isPaused && (
-                  <button
-                    type="button"
-                    aria-label="この写真を削除"
-                    onPointerDown={e =>
-                      e.stopPropagation()
-                    }
-                    onClick={async e => {
-                      e.stopPropagation();
-                      await deleteBubble(bubble.id);
-                    }}
-                    style={styles.photoDeleteButton}
-                  >
-                    ×
-                  </button>
                 )}
 
                 {bubble.type ===
@@ -3406,11 +3378,10 @@ export default function App() {
           style={
             styles.modalOverlay
           }
-          onClick={() =>
-            setSelectedImage(
-              null
-            )
-          }
+          onClick={() => {
+            setSelectedImage(null);
+            setPhotoComment('');
+          }}
         >
           <div
             style={
@@ -3422,7 +3393,7 @@ export default function App() {
           >
             <img
               src={
-                selectedImage
+                selectedImage.src
               }
               alt="selected"
               style={
@@ -3430,15 +3401,52 @@ export default function App() {
               }
             />
 
+            <div
+              style={
+                styles.photoCommentBox
+              }
+            >
+              <label
+                style={
+                  styles.photoCommentLabel
+                }
+              >
+                💬 コメント
+              </label>
+
+              <textarea
+                value={photoComment}
+                onChange={e =>
+                  setPhotoComment(
+                    e.target.value
+                  )
+                }
+                placeholder="この写真についてコメントを書く…"
+                rows={3}
+                style={
+                  styles.photoCommentInput
+                }
+              />
+
+              <button
+                type="button"
+                style={
+                  styles.saveCommentBtn
+                }
+                onClick={savePhotoComment}
+              >
+                コメントを保存
+              </button>
+            </div>
+
             <button
               style={
                 styles.closeBtn
               }
-              onClick={() =>
-                setSelectedImage(
-                  null
-                )
-              }
+              onClick={() => {
+                setSelectedImage(null);
+                setPhotoComment('');
+              }}
             >
               閉じる
             </button>
@@ -3469,186 +3477,6 @@ export default function App() {
           input,
           textarea {
             font-family: inherit;
-          }
-
-          @keyframes emptyBubbleFloat {
-            0% {
-              opacity: 0;
-              transform: translate3d(var(--ex1), 108vh, 0) rotate(var(--er1)) scale(.72);
-            }
-            10% {
-              opacity: .8;
-              transform: translate3d(var(--ex2), 78vh, 0) rotate(var(--er2)) scale(.9);
-            }
-            28% {
-              opacity: .78;
-              transform: translate3d(var(--ex3), 52vh, 0) rotate(var(--er3)) scale(1);
-            }
-            46% {
-              opacity: .72;
-              transform: translate3d(var(--ex1), 28vh, 0) rotate(var(--er1)) scale(1.03);
-            }
-            64% {
-              opacity: .65;
-              transform: translate3d(var(--ex2), 2vh, 0) rotate(var(--er2)) scale(.98);
-            }
-            82% {
-              opacity: .5;
-              transform: translate3d(var(--ex3), -35vh, 0) rotate(var(--er3)) scale(.94);
-            }
-            100% {
-              opacity: .25;
-              transform: translate3d(var(--ex1), -110vh, 0) rotate(var(--er1)) scale(.88);
-            }
-          }
-
-          @keyframes photoRiseAndDrift {
-            0% {
-              opacity: 0;
-              transform: translate3d(-18vw, 115vh, 0) rotate(-8deg) scale(.78);
-            }
-            12% {
-              opacity: 1;
-              transform: translate3d(12vw, 72vh, 0) rotate(5deg) scale(.9);
-            }
-            28% {
-              opacity: 1;
-              transform: translate3d(-24vw, 38vh, 0) rotate(-7deg) scale(1);
-            }
-            45% {
-              opacity: 1;
-              transform: translate3d(30vw, 8vh, 0) rotate(9deg) scale(1.04);
-            }
-            62% {
-              opacity: .95;
-              transform: translate3d(-20vw, -20vh, 0) rotate(-5deg) scale(.98);
-            }
-            78% {
-              opacity: .72;
-              transform: translate3d(24vw, -52vh, 0) rotate(7deg) scale(.94);
-            }
-            90% {
-              opacity: .38;
-              transform: translate3d(-12vw, -82vh, 0) rotate(-4deg) scale(.88);
-            }
-            100% {
-              opacity: 0;
-              transform: translate3d(18vw, -120vh, 0) rotate(8deg) scale(.78);
-            }
-          }
-
-          @keyframes photoFloat {
-            0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.8),
-                  calc(var(--dy) * -0.7),
-                  0
-                )
-                rotate(calc(var(--rot) - 8deg))
-                scale(.94);
-            }
-
-            22% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.35),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(calc(var(--rot) + 6deg))
-                scale(1.02);
-            }
-
-            48% {
-              transform:
-                translate3d(
-                  var(--dx2),
-                  var(--dy2),
-                  0
-                )
-                rotate(var(--rot2))
-                scale(.98);
-            }
-
-            72% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.45),
-                  calc(var(--dy2) * 0.6),
-                  0
-                )
-                rotate(calc(var(--rot) - 5deg))
-                scale(1.05);
-            }
-
-            100% {
-              transform:
-                translate3d(
-                  calc(var(--dx2) * -0.7),
-                  calc(var(--dy) * 0.8),
-                  0
-                )
-                rotate(calc(var(--rot) + 10deg))
-                scale(.96);
-            }
-          }
-
-          @keyframes photoFloat {
-            0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.8),
-                  calc(var(--dy) * -0.7),
-                  0
-                )
-                rotate(calc(var(--rot) - 8deg))
-                scale(.94);
-            }
-
-            22% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.35),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(calc(var(--rot) + 6deg))
-                scale(1.02);
-            }
-
-            48% {
-              transform:
-                translate3d(
-                  var(--dx2),
-                  var(--dy2),
-                  0
-                )
-                rotate(var(--rot2))
-                scale(.98);
-            }
-
-            72% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.45),
-                  calc(var(--dy2) * 0.6),
-                  0
-                )
-                rotate(calc(var(--rot) - 5deg))
-                scale(1.05);
-            }
-
-            100% {
-              transform:
-                translate3d(
-                  calc(var(--dx2) * -0.7),
-                  calc(var(--dy) * 0.8),
-                  0
-                )
-                rotate(calc(var(--rot) + 10deg))
-                scale(.96);
-            }
           }
 
           @keyframes freeFloat {
@@ -3700,39 +3528,6 @@ export default function App() {
                   0
                 )
                 rotate(calc(var(--rot) - 8deg));
-            }
-          }
-
-          @keyframes textAssembleFade {
-            0% {
-              opacity: 0;
-              transform: translate3d(-18vw, 65vh, 0) rotate(-12deg) scale(.72);
-            }
-            12% {
-              opacity: .35;
-              transform: translate3d(10vw, 38vh, 0) rotate(8deg) scale(.84);
-            }
-            26% {
-              opacity: .75;
-              transform: translate3d(-12vw, 18vh, 0) rotate(-6deg) scale(.94);
-            }
-            42% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-            }
-            /* 中央で言葉になった状態をしっかり見せる */
-            68% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-            }
-            /* ここから消え始める */
-            82% {
-              opacity: .55;
-              transform: translate3d(5vw, -12vh, 0) rotate(5deg) scale(.94);
-            }
-            100% {
-              opacity: 0;
-              transform: translate3d(-8vw, -48vh, 0) rotate(-8deg) scale(.78);
             }
           }
 
@@ -4179,33 +3974,12 @@ const styles = {
     overflow: 'hidden'
   },
 
-  photoDeleteButton: {
-    position: 'absolute',
-    top: -12,
-    right: -12,
-    width: 30,
-    height: 30,
-    borderRadius: '50%',
-    border: '2px solid rgba(255,255,255,.95)',
-    background: 'rgba(15,15,20,.85)',
-    color: '#fff',
-    fontSize: 22,
-    fontWeight: 'bold',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    zIndex: 999,
-    padding: 0
-  },
-
   freeBubble: {
     position: 'absolute',
     transformOrigin:
       'center center',
     willChange:
       'transform',
-    touchAction: 'none',
     touchAction:
       'none'
   },
@@ -4308,6 +4082,7 @@ const styles = {
   },
 
   thumbCard: {
+    position: 'relative',
     background:
       'rgba(255,255,255,0.06)',
     borderRadius: 7,
@@ -4320,6 +4095,27 @@ const styles = {
     objectFit: 'cover',
     borderRadius: 5,
     cursor: 'pointer'
+  },
+
+  thumbDeleteBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 30,
+    height: 30,
+    borderRadius: '50%',
+    border: '2px solid rgba(255,255,255,.9)',
+    background: '#dc3545',
+    color: '#fff',
+    fontSize: 21,
+    fontWeight: 700,
+    lineHeight: '26px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    zIndex: 20,
+    padding: 0
   },
 
   thumbAuthorText: {
@@ -4340,15 +4136,6 @@ const styles = {
 
   settingSection: {
     marginBottom: 25
-  },
-
-  controlRow: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    marginTop: 10,
-    color: '#fff',
-    fontSize: 13
   },
 
   settingLabel: {
@@ -4538,6 +4325,45 @@ const styles = {
     objectFit:
       'contain',
     borderRadius: 6
+  },
+
+  photoCommentBox: {
+    width: 'min(520px, 90vw)',
+    marginTop: 14,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8
+  },
+
+  photoCommentLabel: {
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: 14,
+    textAlign: 'left'
+  },
+
+  photoCommentInput: {
+    width: '100%',
+    resize: 'vertical',
+    minHeight: 72,
+    padding: 10,
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.25)',
+    background: 'rgba(0,0,0,.35)',
+    color: '#fff',
+    fontSize: 14,
+    outline: 'none'
+  },
+
+  saveCommentBtn: {
+    alignSelf: 'flex-end',
+    border: 'none',
+    borderRadius: 7,
+    padding: '8px 14px',
+    background: '#007bff',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 700
   },
 
   closeBtn: {
