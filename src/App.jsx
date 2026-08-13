@@ -799,6 +799,21 @@ export default function App() {
   // -------------------------------------------------------
 
   const [emptyBubbles, setEmptyBubbles] =
+
+  const [emptyBubbleCount, setEmptyBubbleCount] =
+    useState(() => {
+      try {
+        const saved = Number(
+          localStorage.getItem('bubble-empty-count')
+        );
+        return Number.isFinite(saved)
+          ? Math.max(0, Math.min(120, saved))
+          : 30;
+      } catch {
+        return 30;
+      }
+    });
+
     useState([]);
 
   // -------------------------------------------------------
@@ -887,7 +902,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen]);
+  }, [currentScreen, emptyBubbleCount]);
 
   // =======================================================
   // Firestore同期
@@ -2989,6 +3004,109 @@ export default function App() {
               </div>
             </>
           )}
+        </div>
+      </div>
+
+      <div style={styles.settingSection}>
+        <div style={styles.settingLabel}>
+          🫧 バブルの量：{emptyBubbleCount}個
+        </div>
+
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10
+        }}>
+          <input
+            type="range"
+            min="0"
+            max="120"
+            value={emptyBubbleCount}
+            onChange={e => {
+              const n = Math.max(
+                0,
+                Math.min(120, Number(e.target.value))
+              );
+              setEmptyBubbleCount(n);
+              try {
+                localStorage.setItem(
+                  'bubble-empty-count',
+                  String(n)
+                );
+              } catch {}
+            }}
+            style={{ flex: 1 }}
+          />
+
+          <input
+            type="number"
+            min="0"
+            max="120"
+            value={emptyBubbleCount}
+            onChange={e => {
+              const n = Math.max(
+                0,
+                Math.min(
+                  120,
+                  Number(e.target.value) || 0
+                )
+              );
+              setEmptyBubbleCount(n);
+              try {
+                localStorage.setItem(
+                  'bubble-empty-count',
+                  String(n)
+                );
+              } catch {}
+            }}
+            style={{
+              width: 60,
+              padding: '6px',
+              borderRadius: 6,
+              border: '1px solid #555',
+              background: '#222',
+              color: '#fff',
+              textAlign: 'center'
+            }}
+          />
+          <span style={{ fontSize: 12 }}>個</span>
+        </div>
+
+        <div style={{
+          display: 'flex',
+          gap: 6,
+          flexWrap: 'wrap',
+          marginTop: 8
+        }}>
+          {[0, 10, 20, 30, 50, 80, 120].map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => {
+                setEmptyBubbleCount(n);
+                try {
+                  localStorage.setItem(
+                    'bubble-empty-count',
+                    String(n)
+                  );
+                } catch {}
+              }}
+              style={{
+                padding: '5px 9px',
+                border: 'none',
+                borderRadius: 6,
+                background:
+                  emptyBubbleCount === n
+                    ? '#007bff'
+                    : '#444',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 11
+              }}
+            >
+              {n}
+            </button>
+          ))}
         </div>
       </div>
 
