@@ -799,6 +799,7 @@ export default function App() {
   // -------------------------------------------------------
 
   const [emptyBubbles, setEmptyBubbles] =
+    useState([]);
 
   const [emptyBubbleCount, setEmptyBubbleCount] =
     useState(() => {
@@ -813,8 +814,6 @@ export default function App() {
         return 30;
       }
     });
-
-    useState([]);
 
   // -------------------------------------------------------
   // WakeLock
@@ -866,12 +865,8 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
-    const count = window.innerWidth < 700
-      ? 18
-      : 28;
-
     const generated = Array.from(
-      { length: count },
+      { length: emptyBubbleCount },
       (_, i) => ({
         id: `empty-${makeId()}-${i}`,
         type: 'empty',
@@ -902,7 +897,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen, emptyBubbleCount]);
+  }, [currentScreen, emptyBubbleCount, speedMode]);
 
   // =======================================================
   // Firestore同期
