@@ -2741,8 +2741,7 @@ export default function App() {
             }
           >
             🎨 背景・設定
-
-
+          </button>
         </div>
 
         <div
