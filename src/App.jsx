@@ -742,6 +742,14 @@ export default function App() {
   const [roomMembers, setRoomMembers] =
     useState([]);
 
+  // 参加人数表示の開閉
+  const [showMembersBar, setShowMembersBar] =
+    useState(true);
+
+  // 退出したメンバーの履歴
+  const [leftMembers, setLeftMembers] =
+    useState([]);
+
   const [bubbles, setBubbles] =
     useState([]);
 
@@ -760,12 +768,6 @@ export default function App() {
 
   const [selectedImage, setSelectedImage] =
     useState(null);
-
-  const [photoComment, setPhotoComment] =
-    useState('');
-
-  const [photoCommentDrafts, setPhotoCommentDrafts] =
-    useState({});
 
   const [isTocOpen, setIsTocOpen] =
     useState(false);
@@ -961,6 +963,9 @@ export default function App() {
 
     let unsubscribeMembers =
       () => {};
+    let unsubscribeLeftMembers =
+      () => {};
+    let myMemberRef = null;
 
     if (activeTab === 'shared') {
       const membersRef =
@@ -971,19 +976,52 @@ export default function App() {
           'members'
         );
 
+      const leftMembersRef =
+        collection(
+          db,
+          'albums',
+          albumKey,
+          'leftMembers'
+        );
+
+      // 現在参加中の人
       unsubscribeMembers =
         onSnapshot(
           membersRef,
           snapshot => {
             setRoomMembers(
               snapshot.docs.map(
-                d => d.data()
+                d => ({
+                  id: d.id,
+                  ...d.data()
+                })
               )
             );
           }
         );
 
-      const myMemberRef =
+      // 過去に退出した人
+      unsubscribeLeftMembers =
+        onSnapshot(
+          leftMembersRef,
+          snapshot => {
+            const loaded =
+              snapshot.docs
+                .map(d => ({
+                  id: d.id,
+                  ...d.data()
+                }))
+                .sort(
+                  (a, b) =>
+                    (b.leftAt || 0) -
+                    (a.leftAt || 0)
+                );
+
+            setLeftMembers(loaded);
+          }
+        );
+
+      myMemberRef =
         doc(
           db,
           'albums',
@@ -992,15 +1030,14 @@ export default function App() {
           currentUser.username
         );
 
+      // 入室
       setDoc(
         myMemberRef,
         {
           username:
             currentUser.username,
-
           avatar:
             currentUser.avatar,
-
           joinedAt: Date.now()
         },
         { merge: true }
@@ -1011,6 +1048,42 @@ export default function App() {
       unsubscribeBubbles();
       unsubscribeSettings();
       unsubscribeMembers();
+      unsubscribeLeftMembers();
+
+      // 共有ルームから抜けたときだけ退出履歴を残す
+      if (
+        activeTab === 'shared' &&
+        myMemberRef &&
+        currentUser?.username
+      ) {
+        const leftMembersRef =
+          collection(
+            db,
+            'albums',
+            albumKey,
+            'leftMembers'
+          );
+
+        addDoc(
+          leftMembersRef,
+          {
+            username:
+              currentUser.username,
+            avatar:
+              currentUser.avatar || null,
+            leftAt: Date.now()
+          }
+        )
+          .then(() =>
+            deleteDoc(myMemberRef)
+          )
+          .catch(error =>
+            console.error(
+              '退出処理エラー:',
+              error
+            )
+          );
+      }
     };
   }, [
     currentScreen,
@@ -1589,43 +1662,6 @@ export default function App() {
         setSelectedBubbleId(null);
       }
     };
-
-  // 写真の拡大表示とコメント
-  const openPhoto = bubble => {
-    if (!bubble?.src) return;
-    setSelectedImage(bubble);
-    setPhotoComment(bubble.comment || '');
-  };
-
-  const savePhotoComment = async () => {
-    if (!selectedImage?.id) return;
-
-    await updateBubble(
-      selectedImage.id,
-      { comment: photoComment }
-    );
-
-    setSelectedImage(prev =>
-      prev ? { ...prev, comment: photoComment } : prev
-    );
-  };
-
-  const savePhotoListComment = async bubble => {
-    const comment =
-      photoCommentDrafts[bubble.id] ??
-      bubble.comment ??
-      '';
-
-    await updateBubble(
-      bubble.id,
-      { comment }
-    );
-
-    setPhotoCommentDrafts(prev => ({
-      ...prev,
-      [bubble.id]: comment
-    }));
-  };
 
   // =======================================================
   // Clear
@@ -2567,50 +2603,65 @@ export default function App() {
           Members
       =============================================== */}
 
-      {activeTab ===
-        'shared' && (
-        <div
-          style={
-            styles.membersBarFloating
-          }
-        >
-          <span>
-            参加中:
-          </span>
+            {activeTab === 'shared' && (
+        <>
+          {!showMembersBar ? (
+            <button
+              type="button"
+              onClick={() => setShowMembersBar(true)}
+              style={{
+                position: 'absolute',
+                right: 14,
+                top: 14,
+                zIndex: 151,
+                border: 'none',
+                borderRadius: 16,
+                padding: '6px 10px',
+                background: 'rgba(0,0,0,0.45)',
+                color: '#fff',
+                cursor: 'pointer',
+                fontSize: 12,
+                fontWeight: 'bold'
+              }}
+              title="参加人数を表示"
+            >
+              👥 参加中
+            </button>
+          ) : (
+            <div
+              style={{
+                ...styles.membersBarFloating,
+                right: 15,
+                top: 15,
+                padding: '6px 8px 6px 10px',
+                gap: 7
+              }}
+            >
+              <span style={{ fontWeight: 'bold' }}>
+                👥 参加中 {roomMembers.length}人
+              </span>
 
-          {roomMembers.map(
-            (m, i) => (
-              <div
-                key={i}
-                style={
-                  styles.memberTag
-                }
+              <button
+                type="button"
+                onClick={() => setShowMembersBar(false)}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  lineHeight: 1,
+                  padding: '2px 4px',
+                  opacity: 0.85
+                }}
+                title="閉じる"
+                aria-label="参加者表示を閉じる"
               >
-                <div
-                  style={{
-                    ...styles.avatarBadgeSmall,
-                    backgroundColor:
-                      m.avatar
-                        ?.bg ||
-                      'transparent'
-                  }}
-                >
-                  {renderAvatarIcon(
-                    m.avatar
-                  )}
-                </div>
-
-                <span
-                  style={
-                    styles.memberName
-                  }
-                >
-                  {m.username}
-                </span>
-              </div>
-            )
+                ×
+              </button>
+            </div>
           )}
-        </div>
+        </>
       )}
 
       {/* ===============================================
@@ -2743,39 +2794,11 @@ export default function App() {
                             styles.thumbImg
                           }
                           onClick={() =>
-                            openPhoto(b)
+                            setSelectedImage(
+                              b.src
+                            )
                           }
                         />
-
-                        <button
-                          type="button"
-                          aria-label="この写真を削除"
-                          style={
-                            styles.thumbDeleteBtn
-                          }
-                          onClick={async e => {
-                            e.stopPropagation();
-
-                            if (
-                              !window.confirm(
-                                'この写真だけ削除しますか？'
-                              )
-                            ) {
-                              return;
-                            }
-
-                            await deleteBubble(b.id);
-
-                            if (
-                              selectedImage?.id === b.id
-                            ) {
-                              setSelectedImage(null);
-                              setPhotoComment('');
-                            }
-                          }}
-                        >
-                          ×
-                        </button>
 
                         <span
                           style={
@@ -2785,68 +2808,6 @@ export default function App() {
                           {b.author ||
                             '不明'}
                         </span>
-
-                        <textarea
-                          value={
-                            photoCommentDrafts[b.id] ??
-                            b.comment ??
-                            ''
-                          }
-                          onChange={e =>
-                            setPhotoCommentDrafts(prev => ({
-                              ...prev,
-                              [b.id]: e.target.value
-                            }))
-                          }
-                          placeholder="コメントを追加…"
-                          rows={2}
-                          style={{
-                            width: '100%',
-                            marginTop: 8,
-                            padding: 7,
-                            borderRadius: 7,
-                            border: '1px solid rgba(255,255,255,.15)',
-                            background: 'rgba(0,0,0,.28)',
-                            color: '#fff',
-                            fontSize: 12,
-                            resize: 'vertical',
-                            outline: 'none'
-                          }}
-                          onClick={e => e.stopPropagation()}
-                        />
-
-                        <button
-                          type="button"
-                          style={{
-                            width: '100%',
-                            marginTop: 6,
-                            padding: '7px 8px',
-                            border: 'none',
-                            borderRadius: 7,
-                            background: '#007bff',
-                            color: '#fff',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                          onClick={async e => {
-                            e.stopPropagation();
-
-                            try {
-                              await savePhotoListComment(b);
-                            } catch (error) {
-                              console.error(
-                                'コメントの保存に失敗しました:',
-                                error
-                              );
-                              alert(
-                                'コメントを保存できませんでした。'
-                              );
-                            }
-                          }}
-                        >
-                          💾 コメントを保存
-                        </button>
                       </div>
                     )
                   )}
@@ -3072,7 +3033,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
               }}
             >
               <EmptyBubble
@@ -3164,20 +3125,22 @@ export default function App() {
                     'center',
 
                   '--dx':
-                    `${bubble.dx || 55}px`,
+                    `${bubble.dx || 20}px`,
 
                   '--dy':
-                    `${bubble.dy || 35}px`,
+                    `${bubble.dy || 20}px`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
                   animation:
-                    isPaused
+                    isPaused ||
+                    bubble.fixed
                       ? 'none'
-                      : bubble.type === 'text'
-                        ? `textFloat ${bubble.duration || 24}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
-                        : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                      : bubble.type ===
+                        'text'
+                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
+                        : `freeFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
                 }}
               >
                 {bubble.type ===
@@ -3456,10 +3419,11 @@ export default function App() {
           style={
             styles.modalOverlay
           }
-          onClick={() => {
-            setSelectedImage(null);
-            setPhotoComment('');
-          }}
+          onClick={() =>
+            setSelectedImage(
+              null
+            )
+          }
         >
           <div
             style={
@@ -3471,7 +3435,7 @@ export default function App() {
           >
             <img
               src={
-                selectedImage.src
+                selectedImage
               }
               alt="selected"
               style={
@@ -3479,48 +3443,15 @@ export default function App() {
               }
             />
 
-            <div
-              style={
-                styles.photoCommentBox
-              }
-            >
-              <div
-                style={
-                  styles.photoCommentLabel
-                }
-              >
-                💬 コメント
-              </div>
-
-              <div
-                style={{
-                  width: '100%',
-                  minHeight: 58,
-                  padding: '12px 14px',
-                  borderRadius: 9,
-                  background: 'rgba(255,255,255,.08)',
-                  border: '1px solid rgba(255,255,255,.14)',
-                  color: '#fff',
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  textAlign: 'left'
-                }}
-              >
-                {selectedImage.comment?.trim()
-                  ? selectedImage.comment
-                  : 'コメントはまだありません'}
-              </div>
-            </div>
-
             <button
               style={
                 styles.closeBtn
               }
-              onClick={() => {
-                setSelectedImage(null);
-                setPhotoComment('');
-              }}
+              onClick={() =>
+                setSelectedImage(
+                  null
+                )
+              }
             >
               閉じる
             </button>
@@ -3555,75 +3486,95 @@ export default function App() {
 
           @keyframes freeFloat {
             0% {
-              opacity: 0;
-              transform: translate3d(calc(var(--dx) * -1), 48vh, 0)
-                rotate(calc(var(--rot) - 12deg)) scale(.72);
+              transform:
+                translate3d(
+                  calc(var(--dx) * -1),
+                  calc(var(--dy) * -1),
+                  0
+                )
+                rotate(var(--rot));
             }
-            12% {
-              opacity: 1;
-              transform: translate3d(calc(var(--dx) * .55), 28vh, 0)
-                rotate(calc(var(--rot) + 8deg)) scale(.88);
+
+            25% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.6),
+                  calc(var(--dy) * -0.8),
+                  0
+                )
+                rotate(calc(var(--rot) + 12deg));
             }
-            32% {
-              opacity: 1;
-              transform: translate3d(calc(var(--dx) * -1.1), 5vh, 0)
-                rotate(calc(var(--rot) - 10deg)) scale(1);
+
+            50% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.8),
+                  calc(var(--dy) * 0.9),
+                  0
+                )
+                rotate(calc(var(--rot) - 10deg));
             }
-            52% {
-              opacity: .98;
-              transform: translate3d(calc(var(--dx) * .85), -12vh, 0)
-                rotate(calc(var(--rot) + 14deg)) scale(1.03);
+
+            75% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.9),
+                  calc(var(--dy) * 0.3),
+                  0
+                )
+                rotate(calc(var(--rot) + 20deg));
             }
-            72% {
-              opacity: .78;
-              transform: translate3d(calc(var(--dx) * -.75), -30vh, 0)
-                rotate(calc(var(--rot) - 12deg)) scale(.96);
-            }
-            88% {
-              opacity: .35;
-              transform: translate3d(calc(var(--dx) * .5), -46vh, 0)
-                rotate(calc(var(--rot) + 8deg)) scale(.86);
-            }
+
             100% {
-              opacity: 0;
-              transform: translate3d(var(--dx), -64vh, 0)
-                rotate(calc(var(--rot) - 16deg)) scale(.74);
+              transform:
+                translate3d(
+                  var(--dx),
+                  var(--dy),
+                  0
+                )
+                rotate(calc(var(--rot) - 8deg));
             }
           }
 
           @keyframes textFloat {
             0% {
-              opacity: 0;
-              transform: translate3d(calc(var(--dx) * -1), 48vh, 0)
-                rotate(var(--rot)) scale(.72);
+              transform:
+                translate3d(
+                  calc(var(--dx) * -1),
+                  calc(var(--dy) * -1),
+                  0
+                )
+                rotate(var(--rot));
             }
-            18% {
-              opacity: .55;
-              transform: translate3d(calc(var(--dx) * .7), 24vh, 0)
-                rotate(calc(var(--rot) + 8deg)) scale(.9);
+
+            45% {
+              transform:
+                translate3d(
+                  calc(var(--dx) * 0.7),
+                  calc(var(--dy) * 0.5),
+                  0
+                )
+                rotate(calc(var(--rot) + 12deg));
             }
-            40% {
-              opacity: 1;
-              transform: translate3d(calc(var(--dx) * .25), 6vh, 0)
-                rotate(calc(var(--rot) * .25)) scale(.98);
+
+            70% {
+              transform:
+                translate3d(
+                  0,
+                  0,
+                  0
+                )
+                rotate(0deg);
             }
-            48% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-            }
-            68% {
-              opacity: 1;
-              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
-            }
-            84% {
-              opacity: .55;
-              transform: translate3d(calc(var(--dx) * .6), -18vh, 0)
-                rotate(calc(var(--rot) + 10deg)) scale(.92);
-            }
+
             100% {
-              opacity: 0;
-              transform: translate3d(var(--dx), -64vh, 0)
-                rotate(calc(var(--rot) - 12deg)) scale(.76);
+              transform:
+                translate3d(
+                  calc(var(--dx) * -0.6),
+                  calc(var(--dy) * 0.8),
+                  0
+                )
+                rotate(calc(var(--rot) - 10deg));
             }
           }
         `}
@@ -4150,27 +4101,6 @@ const styles = {
     cursor: 'pointer'
   },
 
-  thumbDeleteBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 30,
-    height: 30,
-    borderRadius: '50%',
-    border: '2px solid rgba(255,255,255,.9)',
-    background: '#dc3545',
-    color: '#fff',
-    fontSize: 21,
-    fontWeight: 700,
-    lineHeight: '26px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    zIndex: 20,
-    padding: 0
-  },
-
   thumbAuthorText: {
     fontSize: 10,
     color: '#bbb'
@@ -4370,34 +4300,6 @@ const styles = {
     alignItems:
       'center',
     gap: 10
-  },
-
-  photoCommentBox: {
-    width: 'min(520px, 90vw)',
-    marginTop: 14,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8
-  },
-
-  photoCommentLabel: {
-    color: '#fff',
-    fontWeight: 700,
-    fontSize: 14,
-    textAlign: 'left'
-  },
-
-  photoCommentInput: {
-    width: '100%',
-    resize: 'vertical',
-    minHeight: 72,
-    padding: 10,
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.25)',
-    background: 'rgba(0,0,0,.35)',
-    color: '#fff',
-    fontSize: 14,
-    outline: 'none'
   },
 
   modalImg: {
