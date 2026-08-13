@@ -764,6 +764,9 @@ export default function App() {
   const [photoComment, setPhotoComment] =
     useState('');
 
+  const [photoCommentDrafts, setPhotoCommentDrafts] =
+    useState({});
+
   const [isTocOpen, setIsTocOpen] =
     useState(false);
 
@@ -882,7 +885,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen]);
+  }, [currentScreen, speedMode]);
 
   // =======================================================
   // Firestore同期
@@ -1606,6 +1609,18 @@ export default function App() {
       prev
         ? { ...prev, comment: photoComment }
         : prev
+    );
+  };
+
+  const savePhotoListComment = async bubble => {
+    const comment =
+      photoCommentDrafts[bubble.id] ??
+      bubble.comment ??
+      '';
+
+    await updateBubble(
+      bubble.id,
+      { comment }
     );
   };
 
@@ -2725,9 +2740,7 @@ export default function App() {
                             styles.thumbImg
                           }
                           onClick={() =>
-                            setSelectedImage(
-                              b.src
-                            )
+                            openPhoto(b)
                           }
                         />
 
@@ -2769,6 +2782,68 @@ export default function App() {
                           {b.author ||
                             '不明'}
                         </span>
+
+                        <textarea
+                          value={
+                            photoCommentDrafts[b.id] ??
+                            b.comment ??
+                            ''
+                          }
+                          onChange={e =>
+                            setPhotoCommentDrafts(prev => ({
+                              ...prev,
+                              [b.id]: e.target.value
+                            }))
+                          }
+                          placeholder="コメントを追加…"
+                          rows={2}
+                          style={{
+                            width: '100%',
+                            marginTop: 8,
+                            padding: 7,
+                            borderRadius: 7,
+                            border: '1px solid rgba(255,255,255,.15)',
+                            background: 'rgba(0,0,0,.28)',
+                            color: '#fff',
+                            fontSize: 12,
+                            resize: 'vertical',
+                            outline: 'none'
+                          }}
+                          onClick={e => e.stopPropagation()}
+                        />
+
+                        <button
+                          type="button"
+                          style={{
+                            width: '100%',
+                            marginTop: 6,
+                            padding: '7px 8px',
+                            border: 'none',
+                            borderRadius: 7,
+                            background: '#007bff',
+                            color: '#fff',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                          onClick={async e => {
+                            e.stopPropagation();
+
+                            try {
+                              await savePhotoListComment(b);
+                            } catch (error) {
+                              console.error(
+                                'コメントの保存に失敗しました:',
+                                error
+                              );
+                              alert(
+                                'コメントを保存できませんでした。'
+                              );
+                            }
+                          }}
+                        >
+                          💾 コメントを保存
+                        </button>
                       </div>
                     )
                   )}
@@ -3406,37 +3481,33 @@ export default function App() {
                 styles.photoCommentBox
               }
             >
-              <label
+              <div
                 style={
                   styles.photoCommentLabel
                 }
               >
                 💬 コメント
-              </label>
+              </div>
 
-              <textarea
-                value={photoComment}
-                onChange={e =>
-                  setPhotoComment(
-                    e.target.value
-                  )
-                }
-                placeholder="この写真についてコメントを書く…"
-                rows={3}
-                style={
-                  styles.photoCommentInput
-                }
-              />
-
-              <button
-                type="button"
-                style={
-                  styles.saveCommentBtn
-                }
-                onClick={savePhotoComment}
+              <div
+                style={{
+                  width: '100%',
+                  minHeight: 58,
+                  padding: '12px 14px',
+                  borderRadius: 9,
+                  background: 'rgba(255,255,255,.08)',
+                  border: '1px solid rgba(255,255,255,.14)',
+                  color: '#fff',
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                  textAlign: 'left'
+                }}
               >
-                コメントを保存
-              </button>
+                {selectedImage.comment?.trim()
+                  ? selectedImage.comment
+                  : 'コメントはまだありません'}
+              </div>
             </div>
 
             <button
