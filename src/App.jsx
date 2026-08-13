@@ -761,6 +761,12 @@ export default function App() {
   const [selectedImage, setSelectedImage] =
     useState(null);
 
+  const [photoComment, setPhotoComment] =
+    useState('');
+
+  const [photoCommentDrafts, setPhotoCommentDrafts] =
+    useState({});
+
   const [isTocOpen, setIsTocOpen] =
     useState(false);
 
@@ -1583,6 +1589,43 @@ export default function App() {
         setSelectedBubbleId(null);
       }
     };
+
+  // 写真の拡大表示とコメント
+  const openPhoto = bubble => {
+    if (!bubble?.src) return;
+    setSelectedImage(bubble);
+    setPhotoComment(bubble.comment || '');
+  };
+
+  const savePhotoComment = async () => {
+    if (!selectedImage?.id) return;
+
+    await updateBubble(
+      selectedImage.id,
+      { comment: photoComment }
+    );
+
+    setSelectedImage(prev =>
+      prev ? { ...prev, comment: photoComment } : prev
+    );
+  };
+
+  const savePhotoListComment = async bubble => {
+    const comment =
+      photoCommentDrafts[bubble.id] ??
+      bubble.comment ??
+      '';
+
+    await updateBubble(
+      bubble.id,
+      { comment }
+    );
+
+    setPhotoCommentDrafts(prev => ({
+      ...prev,
+      [bubble.id]: comment
+    }));
+  };
 
   // =======================================================
   // Clear
@@ -2700,11 +2743,39 @@ export default function App() {
                             styles.thumbImg
                           }
                           onClick={() =>
-                            setSelectedImage(
-                              b.src
-                            )
+                            openPhoto(b)
                           }
                         />
+
+                        <button
+                          type="button"
+                          aria-label="この写真を削除"
+                          style={
+                            styles.thumbDeleteBtn
+                          }
+                          onClick={async e => {
+                            e.stopPropagation();
+
+                            if (
+                              !window.confirm(
+                                'この写真だけ削除しますか？'
+                              )
+                            ) {
+                              return;
+                            }
+
+                            await deleteBubble(b.id);
+
+                            if (
+                              selectedImage?.id === b.id
+                            ) {
+                              setSelectedImage(null);
+                              setPhotoComment('');
+                            }
+                          }}
+                        >
+                          ×
+                        </button>
 
                         <span
                           style={
@@ -2714,6 +2785,68 @@ export default function App() {
                           {b.author ||
                             '不明'}
                         </span>
+
+                        <textarea
+                          value={
+                            photoCommentDrafts[b.id] ??
+                            b.comment ??
+                            ''
+                          }
+                          onChange={e =>
+                            setPhotoCommentDrafts(prev => ({
+                              ...prev,
+                              [b.id]: e.target.value
+                            }))
+                          }
+                          placeholder="コメントを追加…"
+                          rows={2}
+                          style={{
+                            width: '100%',
+                            marginTop: 8,
+                            padding: 7,
+                            borderRadius: 7,
+                            border: '1px solid rgba(255,255,255,.15)',
+                            background: 'rgba(0,0,0,.28)',
+                            color: '#fff',
+                            fontSize: 12,
+                            resize: 'vertical',
+                            outline: 'none'
+                          }}
+                          onClick={e => e.stopPropagation()}
+                        />
+
+                        <button
+                          type="button"
+                          style={{
+                            width: '100%',
+                            marginTop: 6,
+                            padding: '7px 8px',
+                            border: 'none',
+                            borderRadius: 7,
+                            background: '#007bff',
+                            color: '#fff',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                          onClick={async e => {
+                            e.stopPropagation();
+
+                            try {
+                              await savePhotoListComment(b);
+                            } catch (error) {
+                              console.error(
+                                'コメントの保存に失敗しました:',
+                                error
+                              );
+                              alert(
+                                'コメントを保存できませんでした。'
+                              );
+                            }
+                          }}
+                        >
+                          💾 コメントを保存
+                        </button>
                       </div>
                     )
                   )}
@@ -3323,11 +3456,10 @@ export default function App() {
           style={
             styles.modalOverlay
           }
-          onClick={() =>
-            setSelectedImage(
-              null
-            )
-          }
+          onClick={() => {
+            setSelectedImage(null);
+            setPhotoComment('');
+          }}
         >
           <div
             style={
@@ -3339,7 +3471,7 @@ export default function App() {
           >
             <img
               src={
-                selectedImage
+                selectedImage.src
               }
               alt="selected"
               style={
@@ -3347,15 +3479,48 @@ export default function App() {
               }
             />
 
+            <div
+              style={
+                styles.photoCommentBox
+              }
+            >
+              <div
+                style={
+                  styles.photoCommentLabel
+                }
+              >
+                💬 コメント
+              </div>
+
+              <div
+                style={{
+                  width: '100%',
+                  minHeight: 58,
+                  padding: '12px 14px',
+                  borderRadius: 9,
+                  background: 'rgba(255,255,255,.08)',
+                  border: '1px solid rgba(255,255,255,.14)',
+                  color: '#fff',
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre-wrap',
+                  textAlign: 'left'
+                }}
+              >
+                {selectedImage.comment?.trim()
+                  ? selectedImage.comment
+                  : 'コメントはまだありません'}
+              </div>
+            </div>
+
             <button
               style={
                 styles.closeBtn
               }
-              onClick={() =>
-                setSelectedImage(
-                  null
-                )
-              }
+              onClick={() => {
+                setSelectedImage(null);
+                setPhotoComment('');
+              }}
             >
               閉じる
             </button>
@@ -3985,6 +4150,27 @@ const styles = {
     cursor: 'pointer'
   },
 
+  thumbDeleteBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 30,
+    height: 30,
+    borderRadius: '50%',
+    border: '2px solid rgba(255,255,255,.9)',
+    background: '#dc3545',
+    color: '#fff',
+    fontSize: 21,
+    fontWeight: 700,
+    lineHeight: '26px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    zIndex: 20,
+    padding: 0
+  },
+
   thumbAuthorText: {
     fontSize: 10,
     color: '#bbb'
@@ -4184,6 +4370,34 @@ const styles = {
     alignItems:
       'center',
     gap: 10
+  },
+
+  photoCommentBox: {
+    width: 'min(520px, 90vw)',
+    marginTop: 14,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8
+  },
+
+  photoCommentLabel: {
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: 14,
+    textAlign: 'left'
+  },
+
+  photoCommentInput: {
+    width: '100%',
+    resize: 'vertical',
+    minHeight: 72,
+    padding: 10,
+    borderRadius: 8,
+    border: '1px solid rgba(255,255,255,.25)',
+    background: 'rgba(0,0,0,.35)',
+    color: '#fff',
+    fontSize: 14,
+    outline: 'none'
   },
 
   modalImg: {
