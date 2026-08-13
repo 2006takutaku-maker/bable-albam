@@ -3033,7 +3033,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
+                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
               }}
             >
               <EmptyBubble
@@ -3125,22 +3125,21 @@ export default function App() {
                     'center',
 
                   '--dx':
-                    `${bubble.dx || 20}px`,
+                    `${bubble.dx || 55}px`,
 
                   '--dy':
-                    `${bubble.dy || 20}px`,
+                    `${bubble.dy || 35}px`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
                   animation:
-                    isPaused ||
-                    bubble.fixed
+                    isPaused
                       ? 'none'
                       : bubble.type ===
                         'text'
-                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
-                        : `freeFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
+                        ? `textFloat ${bubble.duration || 24}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                        : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3486,95 +3485,131 @@ export default function App() {
 
           @keyframes freeFloat {
             0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -1),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(var(--rot));
+              opacity: 0;
+              transform: translate3d(
+                calc(var(--dx) * -1),
+                48vh,
+                0
+              ) rotate(calc(var(--rot) - 14deg)) scale(.72);
             }
 
-            25% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.6),
-                  calc(var(--dy) * -0.8),
-                  0
-                )
-                rotate(calc(var(--rot) + 12deg));
+            12% {
+              opacity: 1;
+              transform: translate3d(
+                calc(var(--dx) * .65),
+                28vh,
+                0
+              ) rotate(calc(var(--rot) + 9deg)) scale(.88);
             }
 
-            50% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.8),
-                  calc(var(--dy) * 0.9),
-                  0
-                )
-                rotate(calc(var(--rot) - 10deg));
+            32% {
+              opacity: 1;
+              transform: translate3d(
+                calc(var(--dx) * -1.15),
+                5vh,
+                0
+              ) rotate(calc(var(--rot) - 11deg)) scale(1);
             }
 
-            75% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.9),
-                  calc(var(--dy) * 0.3),
-                  0
-                )
-                rotate(calc(var(--rot) + 20deg));
+            52% {
+              opacity: .98;
+              transform: translate3d(
+                calc(var(--dx) * .9),
+                -12vh,
+                0
+              ) rotate(calc(var(--rot) + 15deg)) scale(1.04);
+            }
+
+            72% {
+              opacity: .78;
+              transform: translate3d(
+                calc(var(--dx) * -.8),
+                -30vh,
+                0
+              ) rotate(calc(var(--rot) - 13deg)) scale(.96);
+            }
+
+            88% {
+              opacity: .35;
+              transform: translate3d(
+                calc(var(--dx) * .55),
+                -46vh,
+                0
+              ) rotate(calc(var(--rot) + 9deg)) scale(.86);
             }
 
             100% {
-              transform:
-                translate3d(
-                  var(--dx),
-                  var(--dy),
-                  0
-                )
-                rotate(calc(var(--rot) - 8deg));
+              opacity: 0;
+              transform: translate3d(
+                var(--dx),
+                -64vh,
+                0
+              ) rotate(calc(var(--rot) - 17deg)) scale(.74);
             }
           }
 
           @keyframes textFloat {
             0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -1),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(var(--rot));
+              opacity: 0;
+              transform: translate3d(
+                calc(var(--dx) * -1),
+                48vh,
+                0
+              ) rotate(var(--rot)) scale(.72);
             }
 
-            45% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.7),
-                  calc(var(--dy) * 0.5),
-                  0
-                )
-                rotate(calc(var(--rot) + 12deg));
+            18% {
+              opacity: .55;
+              transform: translate3d(
+                calc(var(--dx) * .7),
+                24vh,
+                0
+              ) rotate(calc(var(--rot) + 8deg)) scale(.9);
             }
 
-            70% {
-              transform:
-                translate3d(
-                  0,
-                  0,
-                  0
-                )
-                rotate(0deg);
+            40% {
+              opacity: 1;
+              transform: translate3d(
+                calc(var(--dx) * .25),
+                6vh,
+                0
+              ) rotate(calc(var(--rot) * .25)) scale(.98);
+            }
+
+            48% {
+              opacity: 1;
+              transform: translate3d(
+                0,
+                0,
+                0
+              ) rotate(0deg) scale(1);
+            }
+
+            68% {
+              opacity: 1;
+              transform: translate3d(
+                0,
+                0,
+                0
+              ) rotate(0deg) scale(1);
+            }
+
+            84% {
+              opacity: .55;
+              transform: translate3d(
+                calc(var(--dx) * .6),
+                -18vh,
+                0
+              ) rotate(calc(var(--rot) + 10deg)) scale(.92);
             }
 
             100% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.6),
-                  calc(var(--dy) * 0.8),
-                  0
-                )
-                rotate(calc(var(--rot) - 10deg));
+              opacity: 0;
+              transform: translate3d(
+                var(--dx),
+                -64vh,
+                0
+              ) rotate(calc(var(--rot) - 12deg)) scale(.76);
             }
           }
         `}
