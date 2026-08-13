@@ -761,12 +761,6 @@ export default function App() {
   const [selectedImage, setSelectedImage] =
     useState(null);
 
-  const [photoComment, setPhotoComment] =
-    useState('');
-
-  const [photoCommentDrafts, setPhotoCommentDrafts] =
-    useState({});
-
   const [isTocOpen, setIsTocOpen] =
     useState(false);
 
@@ -885,7 +879,7 @@ export default function App() {
     );
 
     setEmptyBubbles(generated);
-  }, [currentScreen, speedMode]);
+  }, [currentScreen]);
 
   // =======================================================
   // Firestore同期
@@ -1589,40 +1583,6 @@ export default function App() {
         setSelectedBubbleId(null);
       }
     };
-
-  // 写真を開く。拡大表示とコメント編集で同じ写真データを使う。
-  const openPhoto = bubble => {
-    if (!bubble?.src) return;
-    setSelectedImage(bubble);
-    setPhotoComment(bubble.comment || '');
-  };
-
-  const savePhotoComment = async () => {
-    if (!selectedImage?.id) return;
-
-    await updateBubble(
-      selectedImage.id,
-      { comment: photoComment }
-    );
-
-    setSelectedImage(prev =>
-      prev
-        ? { ...prev, comment: photoComment }
-        : prev
-    );
-  };
-
-  const savePhotoListComment = async bubble => {
-    const comment =
-      photoCommentDrafts[bubble.id] ??
-      bubble.comment ??
-      '';
-
-    await updateBubble(
-      bubble.id,
-      { comment }
-    );
-  };
 
   // =======================================================
   // Clear
@@ -2740,39 +2700,11 @@ export default function App() {
                             styles.thumbImg
                           }
                           onClick={() =>
-                            openPhoto(b)
+                            setSelectedImage(
+                              b.src
+                            )
                           }
                         />
-
-                        <button
-                          type="button"
-                          aria-label="この写真を削除"
-                          style={
-                            styles.thumbDeleteBtn
-                          }
-                          onClick={async e => {
-                            e.stopPropagation();
-
-                            if (
-                              !window.confirm(
-                                'この写真だけ削除しますか？'
-                              )
-                            ) {
-                              return;
-                            }
-
-                            await deleteBubble(b.id);
-
-                            if (
-                              selectedImage?.id === b.id
-                            ) {
-                              setSelectedImage(null);
-                              setPhotoComment('');
-                            }
-                          }}
-                        >
-                          ×
-                        </button>
 
                         <span
                           style={
@@ -2782,68 +2714,6 @@ export default function App() {
                           {b.author ||
                             '不明'}
                         </span>
-
-                        <textarea
-                          value={
-                            photoCommentDrafts[b.id] ??
-                            b.comment ??
-                            ''
-                          }
-                          onChange={e =>
-                            setPhotoCommentDrafts(prev => ({
-                              ...prev,
-                              [b.id]: e.target.value
-                            }))
-                          }
-                          placeholder="コメントを追加…"
-                          rows={2}
-                          style={{
-                            width: '100%',
-                            marginTop: 8,
-                            padding: 7,
-                            borderRadius: 7,
-                            border: '1px solid rgba(255,255,255,.15)',
-                            background: 'rgba(0,0,0,.28)',
-                            color: '#fff',
-                            fontSize: 12,
-                            resize: 'vertical',
-                            outline: 'none'
-                          }}
-                          onClick={e => e.stopPropagation()}
-                        />
-
-                        <button
-                          type="button"
-                          style={{
-                            width: '100%',
-                            marginTop: 6,
-                            padding: '7px 8px',
-                            border: 'none',
-                            borderRadius: 7,
-                            background: '#007bff',
-                            color: '#fff',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: 'pointer'
-                          }}
-                          onClick={async e => {
-                            e.stopPropagation();
-
-                            try {
-                              await savePhotoListComment(b);
-                            } catch (error) {
-                              console.error(
-                                'コメントの保存に失敗しました:',
-                                error
-                              );
-                              alert(
-                                'コメントを保存できませんでした。'
-                              );
-                            }
-                          }}
-                        >
-                          💾 コメントを保存
-                        </button>
                       </div>
                     )
                   )}
@@ -3069,7 +2939,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration}s ease-in-out ${bubble.delay}s infinite alternate`
+                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
               }}
             >
               <EmptyBubble
@@ -3124,7 +2994,9 @@ export default function App() {
                 }
                 onClick={() => {
                   if (!isPaused) {
-                    openPhoto(bubble);
+                    setSelectedImage(
+                      bubble.src
+                    );
                   } else {
                     setSelectedBubbleId(
                       bubble.id
@@ -3159,22 +3031,20 @@ export default function App() {
                     'center',
 
                   '--dx':
-                    `${bubble.dx || 20}px`,
+                    `${bubble.dx || 55}px`,
 
                   '--dy':
-                    `${bubble.dy || 20}px`,
+                    `${bubble.dy || 35}px`,
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
 
                   animation:
-                    isPaused ||
-                    bubble.fixed
+                    isPaused
                       ? 'none'
-                      : bubble.type ===
-                        'text'
-                        ? `textFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
-                        : `freeFloat ${bubble.duration || 20}s ease-in-out ${bubble.delay || 0}s infinite alternate`
+                      : bubble.type === 'text'
+                        ? `textFloat ${bubble.duration || 24}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                        : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
                 }}
               >
                 {bubble.type ===
@@ -3453,10 +3323,11 @@ export default function App() {
           style={
             styles.modalOverlay
           }
-          onClick={() => {
-            setSelectedImage(null);
-            setPhotoComment('');
-          }}
+          onClick={() =>
+            setSelectedImage(
+              null
+            )
+          }
         >
           <div
             style={
@@ -3468,7 +3339,7 @@ export default function App() {
           >
             <img
               src={
-                selectedImage.src
+                selectedImage
               }
               alt="selected"
               style={
@@ -3476,48 +3347,15 @@ export default function App() {
               }
             />
 
-            <div
-              style={
-                styles.photoCommentBox
-              }
-            >
-              <div
-                style={
-                  styles.photoCommentLabel
-                }
-              >
-                💬 コメント
-              </div>
-
-              <div
-                style={{
-                  width: '100%',
-                  minHeight: 58,
-                  padding: '12px 14px',
-                  borderRadius: 9,
-                  background: 'rgba(255,255,255,.08)',
-                  border: '1px solid rgba(255,255,255,.14)',
-                  color: '#fff',
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                  textAlign: 'left'
-                }}
-              >
-                {selectedImage.comment?.trim()
-                  ? selectedImage.comment
-                  : 'コメントはまだありません'}
-              </div>
-            </div>
-
             <button
               style={
                 styles.closeBtn
               }
-              onClick={() => {
-                setSelectedImage(null);
-                setPhotoComment('');
-              }}
+              onClick={() =>
+                setSelectedImage(
+                  null
+                )
+              }
             >
               閉じる
             </button>
@@ -3552,95 +3390,75 @@ export default function App() {
 
           @keyframes freeFloat {
             0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -1),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(var(--rot));
+              opacity: 0;
+              transform: translate3d(calc(var(--dx) * -1), 48vh, 0)
+                rotate(calc(var(--rot) - 12deg)) scale(.72);
             }
-
-            25% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.6),
-                  calc(var(--dy) * -0.8),
-                  0
-                )
-                rotate(calc(var(--rot) + 12deg));
+            12% {
+              opacity: 1;
+              transform: translate3d(calc(var(--dx) * .55), 28vh, 0)
+                rotate(calc(var(--rot) + 8deg)) scale(.88);
             }
-
-            50% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.8),
-                  calc(var(--dy) * 0.9),
-                  0
-                )
-                rotate(calc(var(--rot) - 10deg));
+            32% {
+              opacity: 1;
+              transform: translate3d(calc(var(--dx) * -1.1), 5vh, 0)
+                rotate(calc(var(--rot) - 10deg)) scale(1);
             }
-
-            75% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.9),
-                  calc(var(--dy) * 0.3),
-                  0
-                )
-                rotate(calc(var(--rot) + 20deg));
+            52% {
+              opacity: .98;
+              transform: translate3d(calc(var(--dx) * .85), -12vh, 0)
+                rotate(calc(var(--rot) + 14deg)) scale(1.03);
             }
-
+            72% {
+              opacity: .78;
+              transform: translate3d(calc(var(--dx) * -.75), -30vh, 0)
+                rotate(calc(var(--rot) - 12deg)) scale(.96);
+            }
+            88% {
+              opacity: .35;
+              transform: translate3d(calc(var(--dx) * .5), -46vh, 0)
+                rotate(calc(var(--rot) + 8deg)) scale(.86);
+            }
             100% {
-              transform:
-                translate3d(
-                  var(--dx),
-                  var(--dy),
-                  0
-                )
-                rotate(calc(var(--rot) - 8deg));
+              opacity: 0;
+              transform: translate3d(var(--dx), -64vh, 0)
+                rotate(calc(var(--rot) - 16deg)) scale(.74);
             }
           }
 
           @keyframes textFloat {
             0% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -1),
-                  calc(var(--dy) * -1),
-                  0
-                )
-                rotate(var(--rot));
+              opacity: 0;
+              transform: translate3d(calc(var(--dx) * -1), 48vh, 0)
+                rotate(var(--rot)) scale(.72);
             }
-
-            45% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * 0.7),
-                  calc(var(--dy) * 0.5),
-                  0
-                )
-                rotate(calc(var(--rot) + 12deg));
+            18% {
+              opacity: .55;
+              transform: translate3d(calc(var(--dx) * .7), 24vh, 0)
+                rotate(calc(var(--rot) + 8deg)) scale(.9);
             }
-
-            70% {
-              transform:
-                translate3d(
-                  0,
-                  0,
-                  0
-                )
-                rotate(0deg);
+            40% {
+              opacity: 1;
+              transform: translate3d(calc(var(--dx) * .25), 6vh, 0)
+                rotate(calc(var(--rot) * .25)) scale(.98);
             }
-
+            48% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+            68% {
+              opacity: 1;
+              transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+            }
+            84% {
+              opacity: .55;
+              transform: translate3d(calc(var(--dx) * .6), -18vh, 0)
+                rotate(calc(var(--rot) + 10deg)) scale(.92);
+            }
             100% {
-              transform:
-                translate3d(
-                  calc(var(--dx) * -0.6),
-                  calc(var(--dy) * 0.8),
-                  0
-                )
-                rotate(calc(var(--rot) - 10deg));
+              opacity: 0;
+              transform: translate3d(var(--dx), -64vh, 0)
+                rotate(calc(var(--rot) - 12deg)) scale(.76);
             }
           }
         `}
@@ -4153,7 +3971,6 @@ const styles = {
   },
 
   thumbCard: {
-    position: 'relative',
     background:
       'rgba(255,255,255,0.06)',
     borderRadius: 7,
@@ -4166,27 +3983,6 @@ const styles = {
     objectFit: 'cover',
     borderRadius: 5,
     cursor: 'pointer'
-  },
-
-  thumbDeleteBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    width: 30,
-    height: 30,
-    borderRadius: '50%',
-    border: '2px solid rgba(255,255,255,.9)',
-    background: '#dc3545',
-    color: '#fff',
-    fontSize: 21,
-    fontWeight: 700,
-    lineHeight: '26px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    zIndex: 20,
-    padding: 0
   },
 
   thumbAuthorText: {
@@ -4396,45 +4192,6 @@ const styles = {
     objectFit:
       'contain',
     borderRadius: 6
-  },
-
-  photoCommentBox: {
-    width: 'min(520px, 90vw)',
-    marginTop: 14,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8
-  },
-
-  photoCommentLabel: {
-    color: '#fff',
-    fontWeight: 700,
-    fontSize: 14,
-    textAlign: 'left'
-  },
-
-  photoCommentInput: {
-    width: '100%',
-    resize: 'vertical',
-    minHeight: 72,
-    padding: 10,
-    borderRadius: 8,
-    border: '1px solid rgba(255,255,255,.25)',
-    background: 'rgba(0,0,0,.35)',
-    color: '#fff',
-    fontSize: 14,
-    outline: 'none'
-  },
-
-  saveCommentBtn: {
-    alignSelf: 'flex-end',
-    border: 'none',
-    borderRadius: 7,
-    padding: '8px 14px',
-    background: '#007bff',
-    color: '#fff',
-    cursor: 'pointer',
-    fontWeight: 700
   },
 
   closeBtn: {
