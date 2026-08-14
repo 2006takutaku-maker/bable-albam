@@ -60,6 +60,37 @@ const randomInt = (min, max) =>
 const makeId = () =>
   Math.random().toString(36).slice(2) + Date.now().toString(36);
 
+const motionFor = (bubble) => {
+  const text = String(bubble?.id || bubble?.createdAt || '');
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const r = () => {
+    h += 0x6D2B79F5;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const x = n => `${((r() * 2 - 1) * n).toFixed(1)}vw`;
+  const y = n => `${((r() * 2 - 1) * n).toFixed(1)}vh`;
+  return {
+    '--mx1': x(34), '--my1': y(22),
+    '--mx2': x(48), '--my2': y(30),
+    '--mx3': x(40), '--my3': y(24),
+    '--mx4': x(55), '--my4': y(32),
+    '--mx5': x(46),
+    '--mrot1': `${((r() * 2 - 1) * 28).toFixed(1)}deg`,
+    '--mrot2': `${((r() * 2 - 1) * 40).toFixed(1)}deg`,
+    '--mrot3': `${((r() * 2 - 1) * 32).toFixed(1)}deg`,
+    '--mrot4': `${((r() * 2 - 1) * 46).toFixed(1)}deg`,
+    '--mrot5': `${((r() * 2 - 1) * 55).toFixed(1)}deg`,
+  };
+};
+
+
 // =========================================================
 // 4. 写真バブル Canvas
 //    人物写真を極端に歪ませない。
@@ -799,6 +830,7 @@ export default function App() {
   // -------------------------------------------------------
 
   const [emptyBubbles, setEmptyBubbles] =
+  const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
     useState([]);
 
   const [emptyBubbleCount, setEmptyBubbleCount] =
@@ -3158,6 +3190,8 @@ export default function App() {
                 '--rot':
                   `${bubble.rotation}deg`,
 
+                ...motionFor(bubble),
+
                 animation:
                   isPaused
                     ? 'none'
@@ -3260,6 +3294,8 @@ export default function App() {
 
                   '--rot':
                     `${bubble.rotation || 0}deg`,
+
+                   ...motionFor(bubble),
 
                   animation:
                     isPaused
@@ -3438,7 +3474,28 @@ export default function App() {
                             bubble.src
                           }
                           alt=""
-                        />
+                        
+              onClick={(e) => {
+                e.stopPropagation();
+                const src =
+                  bubble?.src ??
+                  bubble?.url ??
+                  bubble?.imageUrl ??
+                  bubble?.image;
+                if (src) {
+                  setFullScreenPhoto({
+                    src,
+                    comment: bubble?.comment ?? ''
+                  });
+                }
+              }}
+              style={{
+                cursor: 'zoom-in',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'cover'
+              }}
+            />
                       </button>
                     )
                   )}
@@ -3612,137 +3669,80 @@ export default function App() {
           }
 
           @keyframes freeFloat {
-            0% {
-              opacity: 0;
-              transform: translate3d(
-                calc(var(--dx) * -1),
-                48vh,
-                0
-              ) rotate(calc(var(--rot) - 14deg)) scale(.72);
-            }
-
-            12% {
-              opacity: 1;
-              transform: translate3d(
-                calc(var(--dx) * .65),
-                28vh,
-                0
-              ) rotate(calc(var(--rot) + 9deg)) scale(.88);
-            }
-
-            32% {
-              opacity: 1;
-              transform: translate3d(
-                calc(var(--dx) * -1.15),
-                5vh,
-                0
-              ) rotate(calc(var(--rot) - 11deg)) scale(1);
-            }
-
-            52% {
-              opacity: .98;
-              transform: translate3d(
-                calc(var(--dx) * .9),
-                -12vh,
-                0
-              ) rotate(calc(var(--rot) + 15deg)) scale(1.04);
-            }
-
-            72% {
-              opacity: .78;
-              transform: translate3d(
-                calc(var(--dx) * -.8),
-                -30vh,
-                0
-              ) rotate(calc(var(--rot) - 13deg)) scale(.96);
-            }
-
-            88% {
-              opacity: .35;
-              transform: translate3d(
-                calc(var(--dx) * .55),
-                -46vh,
-                0
-              ) rotate(calc(var(--rot) + 9deg)) scale(.86);
-            }
-
-            100% {
-              opacity: 0;
-              transform: translate3d(
-                var(--dx),
-                -64vh,
-                0
-              ) rotate(calc(var(--rot) - 17deg)) scale(.74);
-            }
+            0% { opacity: 0; transform: translate3d(-8vw, 55vh, 0) rotate(var(--rot)) scale(.72); }
+            12% { opacity: 1; transform: translate3d(var(--mx1), calc(28vh + var(--my1)), 0) rotate(var(--mrot1)) scale(.88); }
+            30% { opacity: 1; transform: translate3d(var(--mx2), calc(8vh + var(--my2)), 0) rotate(var(--mrot2)) scale(1); }
+            50% { opacity: .98; transform: translate3d(var(--mx3), var(--my3), 0) rotate(var(--mrot3)) scale(1.04); }
+            68% { opacity: .86; transform: translate3d(var(--mx4), calc(-18vh + var(--my4)), 0) rotate(var(--mrot4)) scale(.98); }
+            84% { opacity: .45; transform: translate3d(var(--mx5), -40vh, 0) rotate(var(--mrot5)) scale(.86); }
+            100% { opacity: 0; transform: translate3d(var(--mx5), -70vh, 0) rotate(calc(var(--mrot5) + 18deg)) scale(.72); }
           }
 
           @keyframes textFloat {
-            0% {
-              opacity: 0;
-              transform: translate3d(
-                calc(var(--dx) * -1),
-                48vh,
-                0
-              ) rotate(var(--rot)) scale(.72);
-            }
-
-            18% {
-              opacity: .55;
-              transform: translate3d(
-                calc(var(--dx) * .7),
-                24vh,
-                0
-              ) rotate(calc(var(--rot) + 8deg)) scale(.9);
-            }
-
-            40% {
-              opacity: 1;
-              transform: translate3d(
-                calc(var(--dx) * .25),
-                6vh,
-                0
-              ) rotate(calc(var(--rot) * .25)) scale(.98);
-            }
-
-            48% {
-              opacity: 1;
-              transform: translate3d(
-                0,
-                0,
-                0
-              ) rotate(0deg) scale(1);
-            }
-
-            68% {
-              opacity: 1;
-              transform: translate3d(
-                0,
-                0,
-                0
-              ) rotate(0deg) scale(1);
-            }
-
-            84% {
-              opacity: .55;
-              transform: translate3d(
-                calc(var(--dx) * .6),
-                -18vh,
-                0
-              ) rotate(calc(var(--rot) + 10deg)) scale(.92);
-            }
-
-            100% {
-              opacity: 0;
-              transform: translate3d(
-                var(--dx),
-                -64vh,
-                0
-              ) rotate(calc(var(--rot) - 12deg)) scale(.76);
-            }
+            0% { opacity: 0; transform: translate3d(-7vw, 52vh, 0) rotate(var(--rot)) scale(.72); }
+            18% { opacity: .65; transform: translate3d(var(--mx1), calc(24vh + var(--my1)), 0) rotate(var(--mrot1)) scale(.9); }
+            38% { opacity: 1; transform: translate3d(var(--mx2), calc(7vh + var(--my2)), 0) rotate(var(--mrot2)) scale(.98); }
+            48% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+            68% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+            84% { opacity: .5; transform: translate3d(var(--mx4), calc(-20vh + var(--my4)), 0) rotate(var(--mrot4)) scale(.92); }
+            100% { opacity: 0; transform: translate3d(var(--mx5), -70vh, 0) rotate(var(--mrot5)) scale(.76); }
           }
         `}
       </style>
     </div>
+      {fullScreenPhoto && (
+        <div
+          onClick={() => setFullScreenPhoto(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(0,0,0,0.95)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 8
+          }}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setFullScreenPhoto(null);
+            }}
+            style={{
+              position: 'fixed',
+              top: 18,
+              right: 18,
+              zIndex: 100000,
+              width: 48,
+              height: 48,
+              border: 'none',
+              borderRadius: '50%',
+              background: '#e53935',
+              color: '#fff',
+              fontSize: 28,
+              cursor: 'pointer'
+            }}
+            aria-label="画像を閉じる"
+          >
+            ×
+          </button>
+          <img
+            src={fullScreenPhoto.src}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: '100vw',
+              height: '100vh',
+              maxWidth: '100%',
+              maxHeight: '100%',
+              objectFit: 'contain'
+            }}
+          />
+        </div>
+      )}
+
   );
 }
 
