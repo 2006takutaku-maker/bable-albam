@@ -800,6 +800,12 @@ export default function App() {
   const [selectedImage, setSelectedImage] =
     useState(null);
 
+
+  const [isRecordingVideo, setIsRecordingVideo] =
+    useState(false);
+  const [recordingProgress, setRecordingProgress] =
+    useState(0);
+
   const [isTocOpen, setIsTocOpen] =
     useState(false);
 
@@ -845,6 +851,33 @@ export default function App() {
         return 30;
       }
     });
+
+  // 空バブルは設定変更時に一気に配置し直さず、下から順番に湧かせる。
+  const emptyBubbleSerialRef = useRef(0);
+  const emptyBubbleTargetRef = useRef(emptyBubbleCount);
+
+  const makeEmptyBubble = () => {
+    const serial = emptyBubbleSerialRef.current++;
+    return {
+      id: `empty-${makeId()}-${serial}`,
+      type: 'empty',
+      left: random(3, 97),
+      top: 50,
+      size: randomInt(28, 125),
+      rotation: random(-30, 30),
+      dx: random(-42, 42),
+      dy: random(-18, 18),
+      duration:
+        speedMode === 'slow'
+          ? random(24, 38)
+          : speedMode === 'fast'
+            ? random(14, 21)
+            : random(18, 30),
+      delay: random(0, 2),
+      opacity: random(0.28, 0.78),
+      variant: randomInt(0, 3)
+    };
+  };
 
   // -------------------------------------------------------
   // WakeLock
@@ -896,39 +929,53 @@ export default function App() {
   useEffect(() => {
     if (currentScreen !== 'album') return;
 
-    const generated = Array.from(
-      { length: emptyBubbleCount },
-      (_, i) => ({
-        id: `empty-${makeId()}-${i}`,
-        type: 'empty',
+    emptyBubbleTargetRef.current = emptyBubbleCount;
 
-        left: random(4, 94),
-        top: random(5, 92),
+    setEmptyBubbles(prev => {
+      if (prev.length === emptyBubbleCount) return prev;
 
-        size: randomInt(55, 155),
+      if (prev.length > emptyBubbleCount) {
+        return prev.slice(0, emptyBubbleCount);
+      }
 
-        rotation: random(-30, 30),
+      const addCount = emptyBubbleCount - prev.length;
+      return [
+        ...prev,
+        ...Array.from({ length: addCount }, makeEmptyBubble)
+      ];
+    });
+  }, [currentScreen, emptyBubbleCount]);
 
-        dx: random(-30, 30),
-        dy: random(-25, 25),
-
+  // スピード変更時は、既存バブルを消さずに次に湧くバブルだけ速度を反映。
+  useEffect(() => {
+    if (currentScreen !== 'album') return;
+    setEmptyBubbles(prev =>
+      prev.map(b => ({
+        ...b,
         duration:
           speedMode === 'slow'
-            ? random(20, 35)
+            ? random(24, 38)
             : speedMode === 'fast'
-              ? random(9, 17)
-              : random(14, 25),
-
-        delay: random(-20, 0),
-
-        opacity: random(0.35, 0.8),
-
-        variant: randomInt(0, 3)
-      })
+              ? random(14, 21)
+              : random(18, 30)
+      }))
     );
+  }, [speedMode, currentScreen]);
 
-    setEmptyBubbles(generated);
-  }, [currentScreen, emptyBubbleCount, speedMode]);
+
+  useEffect(() => {
+    if (currentScreen !== 'album') return;
+    if (emptyBubbles.length >= emptyBubbleCount) return;
+
+    const timer = setTimeout(() => {
+      setEmptyBubbles(prev => {
+        if (prev.length >= emptyBubbleCount) return prev;
+        return [...prev, makeEmptyBubble()];
+      });
+    }, random(250, 1200));
+
+    return () => clearTimeout(timer);
+  }, [emptyBubbles.length, emptyBubbleCount, currentScreen]);
 
   // =======================================================
   // Firestore同期
@@ -1330,6 +1377,8 @@ export default function App() {
   const enterPrivateAlbum = () => {
     setActiveTab('private');
     setSelectedGenre('すべて');
+    setIsTocOpen(true);
+    setTocActiveTab('photos');
     setCurrentScreen('album');
   };
 
@@ -1349,6 +1398,8 @@ export default function App() {
 
     setActiveTab('shared');
     setSelectedGenre('すべて');
+    setIsTocOpen(true);
+    setTocActiveTab('photos');
     setCurrentScreen('album');
   };
 
@@ -1435,7 +1486,7 @@ export default function App() {
         random(8, 88),
 
       top:
-        random(10, 90),
+        50,
 
       rotation:
         random(-15, 15),
@@ -1500,11 +1551,7 @@ export default function App() {
         ),
 
       top:
-        clamp(
-          50 + random(-10, 10),
-          5,
-          95
-        ),
+        50,
 
       size:
         randomInt(140, 240),
@@ -1584,7 +1631,7 @@ export default function App() {
               random(5, 95),
 
             top:
-              random(5, 95),
+              50,
 
             rotation:
               random(-25, 25),
@@ -1626,6 +1673,205 @@ export default function App() {
       setTextInput('');
       setShowTextInput(false);
     };
+
+  // =======================================================
+  // 30秒動画ダウンロード
+  // 画面のDOMを録画するのではなく、専用Canvasに同じ世界を描く。
+  // そのため画像バブルも「下から出る→漂う→上へ消える」状態で
+  // そのまま動画にできる。
+  // =======================================================
+
+  const downloadMotionVideo = async (seconds = 30) => {
+    if (isRecordingVideo) return;
+
+    const photoBubbles = bubbles.filter(b => b.type === 'photo' && b.src);
+    if (!photoBubbles.length) {
+      alert('動画に入れる写真がまだありません。写真を1枚以上追加してください。');
+      return;
+    }
+
+    if (!window.MediaRecorder) {
+      alert('このブラウザでは動画の録画に対応していません。Chrome / Edgeで試してください。');
+      return;
+    }
+
+    const canvas = document.createElement('canvas');
+    // Instagram向け縦動画 9:16
+    canvas.width = 720;
+    canvas.height = 1280;
+    const ctx = canvas.getContext('2d');
+
+    const loadImage = src => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+
+    try {
+      setIsRecordingVideo(true);
+      setRecordingProgress(0);
+
+      const images = await Promise.all(
+        photoBubbles.map(async b => {
+          try {
+            return [b.id, await loadImage(b.src)];
+          } catch {
+            return [b.id, null];
+          }
+        })
+      );
+      const imageMap = new Map(images);
+
+      let bgImage = null;
+      if (albumSettings.bgType === 'image' && albumSettings.bgImage) {
+        try { bgImage = await loadImage(albumSettings.bgImage); } catch {}
+      }
+
+      const supported = [
+        'video/mp4;codecs=avc1.42E01E',
+        'video/webm;codecs=vp9',
+        'video/webm;codecs=vp8',
+        'video/webm'
+      ];
+      const mimeType = supported.find(type => MediaRecorder.isTypeSupported(type)) || '';
+      if (!mimeType) throw new Error('録画形式が見つかりません');
+
+      const stream = canvas.captureStream(30);
+      const chunks = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 6_000_000
+      });
+
+      recorder.ondataavailable = e => {
+        if (e.data && e.data.size) chunks.push(e.data);
+      };
+
+      const stopped = new Promise(resolve => {
+        recorder.onstop = resolve;
+      });
+
+      const drawBackground = () => {
+        if (albumSettings.bgType === 'color') {
+          ctx.fillStyle = albumSettings.bgColor || '#111';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          return;
+        }
+        if (bgImage) {
+          const scale = Math.max(canvas.width / bgImage.width, canvas.height / bgImage.height);
+          const w = bgImage.width * scale;
+          const h = bgImage.height * scale;
+          ctx.drawImage(bgImage, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+          return;
+        }
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#0f2027');
+        gradient.addColorStop(.5, '#203a43');
+        gradient.addColorStop(1, '#2c5364');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      };
+
+      const seed = photoBubbles.map((b, i) => ({
+        id: b.id,
+        img: imageMap.get(b.id),
+        start: (i * Math.max(1.8, seconds / Math.max(photoBubbles.length, 5))) % Math.max(6, seconds - 8),
+        duration: Math.min(seconds - 2, Math.max(9, Number(b.duration) || 16)),
+        x: random(.12, .88) * canvas.width,
+        drift: random(-180, 180),
+        size: clamp(Number(b.size) || 150, 55, 250) * .75,
+        rotation: random(-.35, .35),
+        phase: random(0, Math.PI * 2)
+      }));
+
+      const drawBubble = item => {
+        if (!item.img) return;
+        ctx.save();
+        const radius = item.size / 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.clip();
+        const scale = Math.max(item.size / item.img.width, item.size / item.img.height);
+        const iw = item.img.width * scale;
+        const ih = item.img.height * scale;
+        ctx.drawImage(item.img, -iw / 2, -ih / 2, iw, ih);
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(0, 0, radius - 2, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,.72)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,.20)';
+        ctx.beginPath();
+        ctx.ellipse(-radius * .30, -radius * .30, radius * .18, radius * .09, -.45, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      };
+
+      recorder.start(250);
+      const startedAt = performance.now();
+      let raf = 0;
+
+      await new Promise(resolve => {
+        const frame = now => {
+          const elapsed = (now - startedAt) / 1000;
+          const t = Math.min(elapsed, seconds);
+          drawBackground();
+
+          seed.forEach(item => {
+            let local = (t - item.start) / item.duration;
+            if (local < 0 || local > 1) return;
+
+            const ease = local * local * (3 - 2 * local);
+            const x = item.x + Math.sin(local * Math.PI * 2 + item.phase) * item.drift;
+            const y = canvas.height + item.size - ease * (canvas.height + item.size * 2.1);
+            const fade = local < .10 ? local / .10 : local > .86 ? (1 - local) / .14 : 1;
+
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, fade));
+            ctx.translate(x, y);
+            ctx.rotate(item.rotation * Math.sin(local * Math.PI * 2));
+            drawBubble(item);
+            ctx.restore();
+          });
+
+          setRecordingProgress(Math.round((t / seconds) * 100));
+
+          if (elapsed >= seconds) {
+            cancelAnimationFrame(raf);
+            recorder.stop();
+            resolve();
+            return;
+          }
+          raf = requestAnimationFrame(frame);
+        };
+        raf = requestAnimationFrame(frame);
+      });
+
+      await stopped;
+      stream.getTracks().forEach(track => track.stop());
+
+      const blob = new Blob(chunks, { type: mimeType });
+      const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bable-albam-instagram-${seconds}s.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (error) {
+      console.error('動画書き出しエラー:', error);
+      alert('動画の作成に失敗しました。Chrome / Edgeで再度試してください。');
+    } finally {
+      setIsRecordingVideo(false);
+      setRecordingProgress(0);
+    }
+  };
 
   // =======================================================
   // Genre
@@ -2634,16 +2880,6 @@ export default function App() {
             )
           )}
 
-          <button
-            style={
-              styles.addGenreBtn
-            }
-            onClick={
-              handleAddGenre
-            }
-          >
-            ＋ タブ追加
-          </button>
         </div>
       </div>
 
@@ -2781,6 +3017,49 @@ export default function App() {
             🎨 背景・設定
           </button>
         </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 8,
+            marginBottom: 12
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleAddGenre}
+            style={{
+              padding: '10px 8px',
+              border: '1px dashed rgba(255,255,255,.55)',
+              borderRadius: 10,
+              background: 'rgba(255,255,255,.08)',
+              color: '#fff',
+              cursor: 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            ＋ タブ追加
+          </button>
+
+          <button
+            type="button"
+            onClick={() => downloadMotionVideo(30)}
+            disabled={isRecordingVideo}
+            style={{
+              padding: '10px 8px',
+              border: 'none',
+              borderRadius: 10,
+              background: isRecordingVideo ? '#555' : '#e91e63',
+              color: '#fff',
+              cursor: isRecordingVideo ? 'wait' : 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            {isRecordingVideo ? `🎬 ${recordingProgress}%` : '🎬 30秒動画'}
+          </button>
+        </div>
+
 
         <div
           style={
@@ -3227,7 +3506,10 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s 1 both`}
+              }}
+              onAnimationEnd={() => {
+                setEmptyBubbles(prev => prev.filter(x => x.id !== bubble.id));
               }}
             >
               <EmptyBubble
@@ -3262,8 +3544,9 @@ export default function App() {
               bubble.left;
 
             const targetTop =
-              textTarget?.top ??
-              bubble.top;
+              isPaused
+                ? (textTarget?.top ?? bubble.top)
+                : (bubble.type === 'photo' ? 50 : (textTarget?.top ?? bubble.top));
 
             const targetRotation =
               textTarget?.rotation ??
@@ -3333,8 +3616,8 @@ export default function App() {
                       ? 'none'
                       : bubble.type ===
                         'text'
-                        ? `textFloat ${bubble.duration || 24}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
-                        : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s infinite`
+                        ? `textFloat ${bubble.duration || 24}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s 1 both`
+                        : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s 1 both`
                 }}
               >
                 {bubble.type ===
@@ -3698,23 +3981,23 @@ export default function App() {
           }
 
           @keyframes freeFloat {
-            0% { opacity: 0; transform: translate3d(-8vw, 55vh, 0) rotate(var(--rot)) scale(.72); }
-            12% { opacity: 1; transform: translate3d(var(--mx1), calc(28vh + var(--my1)), 0) rotate(var(--mrot1)) scale(.88); }
-            30% { opacity: 1; transform: translate3d(var(--mx2), calc(8vh + var(--my2)), 0) rotate(var(--mrot2)) scale(1); }
-            50% { opacity: .98; transform: translate3d(var(--mx3), var(--my3), 0) rotate(var(--mrot3)) scale(1.04); }
-            68% { opacity: .86; transform: translate3d(var(--mx4), calc(-18vh + var(--my4)), 0) rotate(var(--mrot4)) scale(.98); }
-            84% { opacity: .45; transform: translate3d(var(--mx5), -40vh, 0) rotate(var(--mrot5)) scale(.86); }
-            100% { opacity: 0; transform: translate3d(var(--mx5), -70vh, 0) rotate(calc(var(--mrot5) + 18deg)) scale(.72); }
+            0% { opacity: 0; transform: translate3d(0, 58vh, 0) rotate(var(--rot)) scale(.72); }
+            10% { opacity: 1; transform: translate3d(calc(var(--mx1) * .35), 34vh, 0) rotate(var(--mrot1)) scale(.86); }
+            28% { opacity: 1; transform: translate3d(var(--mx2), 10vh, 0) rotate(var(--mrot2)) scale(1); }
+            48% { opacity: .98; transform: translate3d(var(--mx3), -8vh, 0) rotate(var(--mrot3)) scale(1.04); }
+            66% { opacity: .86; transform: translate3d(var(--mx4), -25vh, 0) rotate(var(--mrot4)) scale(.98); }
+            84% { opacity: .48; transform: translate3d(var(--mx5), -48vh, 0) rotate(var(--mrot5)) scale(.86); }
+            100% { opacity: 0; transform: translate3d(var(--mx5), -76vh, 0) rotate(calc(var(--mrot5) + 18deg)) scale(.72); }
           }
 
           @keyframes textFloat {
-            0% { opacity: 0; transform: translate3d(-7vw, 52vh, 0) rotate(var(--rot)) scale(.72); }
-            18% { opacity: .65; transform: translate3d(var(--mx1), calc(24vh + var(--my1)), 0) rotate(var(--mrot1)) scale(.9); }
-            38% { opacity: 1; transform: translate3d(var(--mx2), calc(7vh + var(--my2)), 0) rotate(var(--mrot2)) scale(.98); }
+            0% { opacity: 0; transform: translate3d(0, 58vh, 0) rotate(var(--rot)) scale(.72); }
+            16% { opacity: .65; transform: translate3d(var(--mx1), 25vh, 0) rotate(var(--mrot1)) scale(.9); }
+            36% { opacity: 1; transform: translate3d(var(--mx2), 6vh, 0) rotate(var(--mrot2)) scale(.98); }
             48% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-            68% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
-            84% { opacity: .5; transform: translate3d(var(--mx4), calc(-20vh + var(--my4)), 0) rotate(var(--mrot4)) scale(.92); }
-            100% { opacity: 0; transform: translate3d(var(--mx5), -70vh, 0) rotate(var(--mrot5)) scale(.76); }
+            66% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0deg) scale(1); }
+            84% { opacity: .5; transform: translate3d(var(--mx4), -22vh, 0) rotate(var(--mrot4)) scale(.92); }
+            100% { opacity: 0; transform: translate3d(var(--mx5), -76vh, 0) rotate(var(--mrot5)) scale(.76); }
           }
         `}
       </style>
