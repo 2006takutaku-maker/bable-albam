@@ -830,7 +830,6 @@ export default function App() {
   // -------------------------------------------------------
 
   const [emptyBubbles, setEmptyBubbles] =
-  const [fullScreenPhoto, setFullScreenPhoto] = useState(null);
     useState([]);
 
   const [emptyBubbleCount, setEmptyBubbleCount] =
@@ -1688,20 +1687,27 @@ export default function App() {
 
   const deleteBubble =
     async id => {
-      await deleteDoc(
-        doc(
-          db,
-          'albums',
-          albumKey,
-          'bubbles',
-          id
-        )
-      );
+      try {
+        await deleteDoc(
+          doc(
+            db,
+            'albums',
+            albumKey,
+            'bubbles',
+            id
+          )
+        );
 
-      if (
-        selectedBubbleId === id
-      ) {
-        setSelectedBubbleId(null);
+        setBubbles(prev =>
+          prev.filter(b => b.id !== id)
+        );
+
+        if (selectedBubbleId === id) {
+          setSelectedBubbleId(null);
+        }
+      } catch (error) {
+        console.error('写真の削除に失敗しました:', error);
+        alert('写真の削除に失敗しました。');
       }
     };
 
@@ -2823,10 +2829,36 @@ export default function App() {
                     (b, index) => (
                       <div
                         key={b.id}
-                        style={
-                          styles.thumbCard
-                        }
+                        style={{
+                          ...styles.thumbCard,
+                          position: 'relative'
+                        }}
                       >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            deleteBubble(b.id)
+                          }
+                          style={{
+                            position: 'absolute',
+                            top: 7,
+                            right: 7,
+                            zIndex: 10,
+                            width: 34,
+                            height: 34,
+                            border: 'none',
+                            borderRadius: '50%',
+                            background: '#e53935',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: 16,
+                            boxShadow: '0 2px 8px rgba(0,0,0,.35)'
+                          }}
+                          title="この写真を削除"
+                          aria-label="この写真を削除"
+                        >
+                          🗑️
+                        </button>
                         <img
                           src={
                             b.src
@@ -3249,14 +3281,13 @@ export default function App() {
                   )
                 }
                 onClick={() => {
-                  if (!isPaused) {
-                    setSelectedImage(
-                      bubble.src
-                    );
-                  } else {
-                    setSelectedBubbleId(
-                      bubble.id
-                    );
+                  if (bubble.type === 'photo') {
+                    setSelectedImage(bubble.src);
+                    return;
+                  }
+
+                  if (isPaused) {
+                    setSelectedBubbleId(bubble.id);
                   }
                 }}
                 style={{
@@ -3470,32 +3501,14 @@ export default function App() {
                         }
                       >
                         <img
-                          src={
-                            bubble.src
-                          }
+                          src={bubble.src}
                           alt=""
-                        
-              onClick={(e) => {
-                e.stopPropagation();
-                const src =
-                  bubble?.src ??
-                  bubble?.url ??
-                  bubble?.imageUrl ??
-                  bubble?.image;
-                if (src) {
-                  setFullScreenPhoto({
-                    src,
-                    comment: bubble?.comment ?? ''
-                  });
-                }
-              }}
-              style={{
-                cursor: 'zoom-in',
-                maxWidth: '100%',
-                maxHeight: '100%',
-                objectFit: 'cover'
-              }}
-            />
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover'
+                          }}
+                        />
                       </button>
                     )
                   )}
@@ -3600,19 +3613,30 @@ export default function App() {
 
       {selectedImage && (
         <div
-          style={
-            styles.modalOverlay
-          }
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 99999,
+            background: 'rgba(0,0,0,0.96)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 8
+          }}
           onClick={() =>
-            setSelectedImage(
-              null
-            )
+            setSelectedImage(null)
           }
         >
           <div
-            style={
-              styles.modalCard
-            }
+            style={{
+              width: '100vw',
+              height: '100vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative',
+              background: 'transparent'
+            }}
             onClick={e =>
               e.stopPropagation()
             }
@@ -3622,9 +3646,14 @@ export default function App() {
                 selectedImage
               }
               alt="selected"
-              style={
-                styles.modalImg
-              }
+              style={{
+                width: '100vw',
+                height: '100vh',
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'contain',
+                display: 'block'
+              }}
             />
 
             <button
@@ -3690,59 +3719,6 @@ export default function App() {
         `}
       </style>
     </div>
-      {fullScreenPhoto && (
-        <div
-          onClick={() => setFullScreenPhoto(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 99999,
-            background: 'rgba(0,0,0,0.95)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 8
-          }}
-        >
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setFullScreenPhoto(null);
-            }}
-            style={{
-              position: 'fixed',
-              top: 18,
-              right: 18,
-              zIndex: 100000,
-              width: 48,
-              height: 48,
-              border: 'none',
-              borderRadius: '50%',
-              background: '#e53935',
-              color: '#fff',
-              fontSize: 28,
-              cursor: 'pointer'
-            }}
-            aria-label="画像を閉じる"
-          >
-            ×
-          </button>
-          <img
-            src={fullScreenPhoto.src}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: '100vw',
-              height: '100vh',
-              maxWidth: '100%',
-              maxHeight: '100%',
-              objectFit: 'contain'
-            }}
-          />
-        </div>
-      )}
-
   );
 }
 
@@ -4253,7 +4229,8 @@ const styles = {
     background:
       'rgba(255,255,255,0.06)',
     borderRadius: 7,
-    padding: 6
+    padding: 6,
+    position: 'relative'
   },
 
   thumbImg: {
