@@ -3506,7 +3506,7 @@ export default function App() {
                 animation:
                   isPaused
                     ? 'none'
-                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s 1 both`}
+                    : `freeFloat ${bubble.duration || 28}s cubic-bezier(.37,0,.63,1) ${bubble.delay || 0}s 1 both`
               }}
               onAnimationEnd={() => {
                 setEmptyBubbles(prev => prev.filter(x => x.id !== bubble.id));
