@@ -1735,10 +1735,16 @@ export default function App() {
         } catch {}
       }
 
+      // MP4 はブラウザ/OSによって「対応している」と判定されても
+      // 実際の書き出しで再生できないことがあるため、H.264の
+      // Constrained Baseline を最優先し、実際にMediaRecorderが採用した
+      // mimeTypeをそのまま保存形式に使う。
       const supported = [
+        'video/mp4;codecs=avc1.424028',
         'video/mp4;codecs=avc1.42E01E',
-        'video/webm;codecs=vp9',
+        'video/mp4',
         'video/webm;codecs=vp8',
+        'video/webm;codecs=vp9',
         'video/webm'
       ];
       const mimeType = supported.find(type =>
@@ -1748,10 +1754,24 @@ export default function App() {
 
       const stream = canvas.captureStream(30);
       const chunks = [];
-      const recorder = new MediaRecorder(stream, {
-        mimeType,
-        videoBitsPerSecond: 6_000_000
-      });
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 5_000_000
+        });
+      } catch (e) {
+        // MP4生成に失敗するブラウザではWebMへフォールバック。
+        const fallback = [
+          'video/webm;codecs=vp8',
+          'video/webm'
+        ].find(type => MediaRecorder.isTypeSupported(type));
+        if (!fallback) throw e;
+        recorder = new MediaRecorder(stream, {
+          mimeType: fallback,
+          videoBitsPerSecond: 5_000_000
+        });
+      }
 
       recorder.ondataavailable = e => {
         if (e.data && e.data.size) chunks.push(e.data);
@@ -2100,16 +2120,23 @@ export default function App() {
       await stopped;
       stream.getTracks().forEach(track => track.stop());
 
-      const blob = new Blob([chunks], { type: mimeType });
-      const ext = mimeType.startsWith('video/mp4')
-        ? 'mp4'
-        : 'webm';
+      // MediaRecorderが実際に採用した形式を使う。
+      // 「WebMの中身なのに .mp4」という壊れたファイルを絶対に作らない。
+      const actualMimeType = recorder.mimeType || mimeType;
+      const blob = new Blob([chunks], { type: actualMimeType });
+      const isMp4 = actualMimeType.toLowerCase().startsWith('video/mp4');
+      const ext = isMp4 ? 'mp4' : 'webm';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `bable-albam-instagram-${seconds}s.${ext}`;
       document.body.appendChild(a);
       a.click();
+      if (!isMp4) {
+        setTimeout(() => {
+          alert('このブラウザではMP4を書き出せないため、再生可能なWebMで保存しました。MP4が必要ならEdge/SafariなどMP4対応環境で書き出してください。');
+        }, 300);
+      }
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (error) {
