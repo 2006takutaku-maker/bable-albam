@@ -803,6 +803,8 @@ export default function App() {
 
   const [isRecordingVideo, setIsRecordingVideo] =
     useState(false);
+  const [uploadStatus, setUploadStatus] =
+    useState('');
   const [recordingProgress, setRecordingProgress] =
     useState(0);
 
@@ -1407,52 +1409,141 @@ export default function App() {
   // Image upload
   // =======================================================
 
-  const handleImageUpload = e => {
-    const files =
-      Array.from(e.target.files);
+  // =======================================================
+  // Mobile-safe image compression
+  // Firestore に巨大な元画像(Base64)を直接保存しない。
+  // スマホ写真を自動で縮小・JPEG化してから保存する。
+  // =======================================================
 
-    if (!files.length) return;
+  const compressImageForUpload = (file, options = {}) => {
+    const maxSide = options.maxSide || 1280;
+    const quality = options.quality || 0.72;
+    const maxBytes = options.maxBytes || 850 * 1024;
 
-    const genre =
-      selectedGenre === 'すべて'
-        ? genres[1] || '未分類'
-        : selectedGenre;
+    return new Promise((resolve, reject) => {
+      if (!file || !String(file.type || '').startsWith('image/')) {
+        reject(new Error('画像ファイルではありません'));
+        return;
+      }
 
-    files.forEach(file => {
-      const reader =
-        new FileReader();
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
 
-      reader.onload = event => {
-        createBubble(
-          event.target.result,
-          genre
-        );
+      const cleanup = () => {
+        try { URL.revokeObjectURL(objectUrl); } catch {}
       };
 
-      reader.readAsDataURL(file);
-    });
+      img.onload = async () => {
+        try {
+          const ratio = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+          let width = Math.max(1, Math.round((img.naturalWidth || img.width) * ratio));
+          let height = Math.max(1, Math.round((img.naturalHeight || img.height) * ratio));
 
-    e.target.value = '';
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d', { alpha: false });
+          if (!ctx) throw new Error('Canvasを作成できません');
+
+          const makeBlob = (q) => new Promise((res, rej) => {
+            canvas.toBlob(blob => blob ? res(blob) : rej(new Error('画像変換に失敗しました')), 'image/jpeg', q);
+          });
+
+          let blob = null;
+          let q = quality;
+
+          for (let attempt = 0; attempt < 7; attempt++) {
+            canvas.width = width;
+            canvas.height = height;
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, width, height);
+            ctx.drawImage(img, 0, 0, width, height);
+            blob = await makeBlob(q);
+
+            if (blob.size <= maxBytes) break;
+
+            if (q > 0.5) {
+              q -= 0.07;
+            } else {
+              width = Math.max(480, Math.round(width * 0.82));
+              height = Math.max(480, Math.round(height * 0.82));
+            }
+          }
+
+          if (!blob) throw new Error('画像の圧縮に失敗しました');
+
+          const reader = new FileReader();
+          reader.onload = () => {
+            cleanup();
+            resolve({ dataUrl: reader.result, width, height, bytes: blob.size });
+          };
+          reader.onerror = () => {
+            cleanup();
+            reject(new Error('画像データの読み込みに失敗しました'));
+          };
+          reader.readAsDataURL(blob);
+        } catch (err) {
+          cleanup();
+          reject(err);
+        }
+      };
+
+      img.onerror = () => {
+        cleanup();
+        reject(new Error('この画像形式をブラウザで読み込めません。iPhoneの場合は「互換性優先」またはJPEG/PNGで試してください。'));
+      };
+
+      img.src = objectUrl;
+    });
   };
 
-  const handleBgImageUpload = e => {
-    const file =
-      e.target.files[0];
+  const handleImageUpload = async e => {
+    const files = Array.from(e.target.files || []).filter(file => file && file.type?.startsWith('image/'));
+    if (!files.length) return;
 
+    const genre = selectedGenre === 'すべて'
+      ? genres[1] || '未分類'
+      : selectedGenre;
+
+    try {
+      setUploadStatus?.(`写真を準備中… 0/${files.length}`);
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const compressed = await compressImageForUpload(file);
+        await createBubble(compressed.dataUrl, genre);
+        setUploadStatus?.(`写真をアップロード中… ${i + 1}/${files.length}`);
+      }
+
+      setUploadStatus?.('');
+    } catch (error) {
+      console.error('写真アップロードエラー:', error);
+      setUploadStatus?.('');
+      alert(`写真をアップロードできませんでした。\n${error?.message || 'もう一度試してください。'}`);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleBgImageUpload = async e => {
+    const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader =
-      new FileReader();
+    try {
+      const compressed = await compressImageForUpload(file, {
+        maxSide: 1600,
+        quality: 0.76,
+        maxBytes: 900 * 1024
+      });
 
-    reader.onload = event => {
-      updateSettings({
-        bgImage:
-          event.target.result,
+      await updateSettings({
+        bgImage: compressed.dataUrl,
         bgType: 'image'
       });
-    };
-
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('背景画像アップロードエラー:', error);
+      alert(`背景画像を読み込めませんでした。\n${error?.message || 'JPEG/PNGで試してください。'}`);
+    } finally {
+      e.target.value = '';
+    }
   };
 
   // =======================================================
@@ -1739,17 +1830,25 @@ export default function App() {
       // 実際の書き出しで再生できないことがあるため、H.264の
       // Constrained Baseline を最優先し、実際にMediaRecorderが採用した
       // mimeTypeをそのまま保存形式に使う。
-      const supported = [
-        'video/mp4;codecs=avc1.424028',
+      // WebMを .mp4 に偽装しない。
+      // 本当にMP4を録画できる環境だけMP4、それ以外はWebM。
+      const mp4Types = [
         'video/mp4;codecs=avc1.42E01E',
-        'video/mp4',
+        'video/mp4;codecs=avc1.424028',
+        'video/mp4'
+      ];
+      const webmTypes = [
         'video/webm;codecs=vp8',
         'video/webm;codecs=vp9',
         'video/webm'
       ];
-      const mimeType = supported.find(type =>
+      const mp4Type = mp4Types.find(type =>
         MediaRecorder.isTypeSupported(type)
-      ) || '';
+      );
+      const webmType = webmTypes.find(type =>
+        MediaRecorder.isTypeSupported(type)
+      );
+      const mimeType = mp4Type || webmType || '';
       if (!mimeType) throw new Error('録画形式が見つかりません');
 
       const stream = canvas.captureStream(30);
@@ -2134,7 +2233,7 @@ export default function App() {
       a.click();
       if (!isMp4) {
         setTimeout(() => {
-          alert('このブラウザではMP4を書き出せないため、再生可能なWebMで保存しました。MP4が必要ならEdge/SafariなどMP4対応環境で書き出してください。');
+          alert('このブラウザはMP4録画に対応していないため、WebMで保存しました。WindowsではEdge/Chromeで開けます。Instagram用MP4が必要な場合は、MP4対応ブラウザで書き出してください。');
         }, 300);
       }
       a.remove();
@@ -3741,6 +3840,27 @@ export default function App() {
       {/* ===============================================
           Stage
       =============================================== */}
+
+      {uploadStatus && (
+        <div
+          style={{
+            position: 'fixed',
+            left: '50%',
+            bottom: 24,
+            transform: 'translateX(-50%)',
+            zIndex: 10000,
+            padding: '10px 16px',
+            borderRadius: 999,
+            background: 'rgba(0,0,0,.78)',
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: 14,
+            pointerEvents: 'none'
+          }}
+        >
+          {uploadStatus}
+        </div>
+      )}
 
       <div
         data-stage="true"
