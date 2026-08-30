@@ -1684,9 +1684,15 @@ export default function App() {
   const downloadMotionVideo = async (seconds = 30) => {
     if (isRecordingVideo) return;
 
-    const photoBubbles = bubbles.filter(b => b.type === 'photo' && b.src);
-    if (!photoBubbles.length) {
-      alert('動画に入れる写真がまだありません。写真を1枚以上追加してください。');
+    const photoBubbles = bubbles.filter(
+      b => b.type === 'photo' && b.src
+    );
+    const textBubbles = bubbles.filter(
+      b => b.type === 'text' && String(b.text || '').trim()
+    );
+
+    if (!photoBubbles.length && !textBubbles.length) {
+      alert('動画に入れる写真または文字がありません。');
       return;
     }
 
@@ -1696,7 +1702,6 @@ export default function App() {
     }
 
     const canvas = document.createElement('canvas');
-    // Instagram向け縦動画 9:16
     canvas.width = 720;
     canvas.height = 1280;
     const ctx = canvas.getContext('2d');
@@ -1725,7 +1730,9 @@ export default function App() {
 
       let bgImage = null;
       if (albumSettings.bgType === 'image' && albumSettings.bgImage) {
-        try { bgImage = await loadImage(albumSettings.bgImage); } catch {}
+        try {
+          bgImage = await loadImage(albumSettings.bgImage);
+        } catch {}
       }
 
       const supported = [
@@ -1734,7 +1741,9 @@ export default function App() {
         'video/webm;codecs=vp8',
         'video/webm'
       ];
-      const mimeType = supported.find(type => MediaRecorder.isTypeSupported(type)) || '';
+      const mimeType = supported.find(type =>
+        MediaRecorder.isTypeSupported(type)
+      ) || '';
       if (!mimeType) throw new Error('録画形式が見つかりません');
 
       const stream = canvas.captureStream(30);
@@ -1759,13 +1768,27 @@ export default function App() {
           return;
         }
         if (bgImage) {
-          const scale = Math.max(canvas.width / bgImage.width, canvas.height / bgImage.height);
+          const scale = Math.max(
+            canvas.width / bgImage.width,
+            canvas.height / bgImage.height
+          );
           const w = bgImage.width * scale;
           const h = bgImage.height * scale;
-          ctx.drawImage(bgImage, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h);
+          ctx.drawImage(
+            bgImage,
+            (canvas.width - w) / 2,
+            (canvas.height - h) / 2,
+            w,
+            h
+          );
           return;
         }
-        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        const gradient = ctx.createLinearGradient(
+          0,
+          0,
+          0,
+          canvas.height
+        );
         gradient.addColorStop(0, '#0f2027');
         gradient.addColorStop(.5, '#203a43');
         gradient.addColorStop(1, '#2c5364');
@@ -1773,43 +1796,208 @@ export default function App() {
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       };
 
-      const seed = photoBubbles.map((b, i) => ({
-        id: b.id,
-        img: imageMap.get(b.id),
-        start: (i * Math.max(1.8, seconds / Math.max(photoBubbles.length, 5))) % Math.max(6, seconds - 8),
-        duration: Math.min(seconds - 2, Math.max(9, Number(b.duration) || 16)),
-        x: random(.12, .88) * canvas.width,
-        drift: random(-180, 180),
-        size: clamp(Number(b.size) || 150, 55, 250) * .75,
-        rotation: random(-.35, .35),
-        phase: random(0, Math.PI * 2)
-      }));
-
-      const drawBubble = item => {
+      const drawPhotoBubble = item => {
         if (!item.img) return;
-        ctx.save();
         const radius = item.size / 2;
+
+        ctx.save();
         ctx.beginPath();
         ctx.arc(0, 0, radius, 0, Math.PI * 2);
         ctx.clip();
-        const scale = Math.max(item.size / item.img.width, item.size / item.img.height);
+
+        const scale = Math.max(
+          item.size / item.img.width,
+          item.size / item.img.height
+        );
         const iw = item.img.width * scale;
         const ih = item.img.height * scale;
-        ctx.drawImage(item.img, -iw / 2, -ih / 2, iw, ih);
+        ctx.drawImage(
+          item.img,
+          -iw / 2,
+          -ih / 2,
+          iw,
+          ih
+        );
         ctx.restore();
 
         ctx.save();
         ctx.beginPath();
         ctx.arc(0, 0, radius - 2, 0, Math.PI * 2);
-        ctx.strokeStyle = 'rgba(255,255,255,.72)';
-        ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(255,255,255,.78)';
+        ctx.lineWidth = Math.max(2, item.size / 55);
         ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,.20)';
+        ctx.fillStyle = 'rgba(255,255,255,.22)';
         ctx.beginPath();
-        ctx.ellipse(-radius * .30, -radius * .30, radius * .18, radius * .09, -.45, 0, Math.PI * 2);
+        ctx.ellipse(
+          -radius * .30,
+          -radius * .30,
+          radius * .18,
+          radius * .09,
+          -.45,
+          0,
+          Math.PI * 2
+        );
         ctx.fill();
         ctx.restore();
       };
+
+      // 空バブルも動画に入れる。
+      // 小さいものを多めにして奥行きを出し、
+      // それぞれ違う横揺れ・回転・寿命で下から自然に湧かせる。
+      const drawEmptyBubble = item => {
+        const radius = item.size / 2;
+
+        ctx.save();
+        const glass = ctx.createRadialGradient(
+          -radius * .30,
+          -radius * .32,
+          radius * .04,
+          0,
+          0,
+          radius
+        );
+        glass.addColorStop(0, 'rgba(255,255,255,.24)');
+        glass.addColorStop(.48, 'rgba(255,255,255,.08)');
+        glass.addColorStop(1, 'rgba(255,255,255,.015)');
+        ctx.fillStyle = glass;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,255,255,.48)';
+        ctx.lineWidth = Math.max(1.2, item.size / 70);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,.30)';
+        ctx.beginPath();
+        ctx.ellipse(
+          -radius * .30,
+          -radius * .30,
+          Math.max(2, radius * .18),
+          Math.max(1.5, radius * .09),
+          -.45,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+        ctx.restore();
+      };
+
+      // 文字バブルも動画に入れる。
+      // 同じ messageId の文字は近いタイミングで中央方向へ集まり、
+      // その後ふわっと上へ流れるようにする。
+      const drawTextBubble = item => {
+        const radius = item.size / 2;
+
+        ctx.save();
+        const glass = ctx.createRadialGradient(
+          -radius * .28,
+          -radius * .32,
+          radius * .05,
+          0,
+          0,
+          radius
+        );
+        glass.addColorStop(0, 'rgba(255,255,255,.30)');
+        glass.addColorStop(.45, 'rgba(255,255,255,.10)');
+        glass.addColorStop(1, 'rgba(255,255,255,.03)');
+        ctx.fillStyle = glass;
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,255,255,.72)';
+        ctx.lineWidth = Math.max(2, item.size / 55);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,.28)';
+        ctx.beginPath();
+        ctx.ellipse(
+          -radius * .30,
+          -radius * .30,
+          radius * .20,
+          radius * .10,
+          -.45,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${Math.max(24, item.size * .46)}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = 'rgba(0,0,0,.45)';
+        ctx.shadowBlur = 8;
+        ctx.fillText(item.text, 0, 2);
+        ctx.restore();
+      };
+
+      const photoSeed = photoBubbles.map((b, i) => ({
+        kind: 'photo',
+        id: b.id,
+        img: imageMap.get(b.id),
+        start:
+          (i * Math.max(
+            1.6,
+            seconds / Math.max(photoBubbles.length, 5)
+          )) % Math.max(6, seconds - 8),
+        duration: Math.min(
+          seconds - 2,
+          Math.max(9, Number(b.duration) || 16)
+        ),
+        x: random(.10, .90) * canvas.width,
+        drift: random(-190, 190),
+        size: clamp(Number(b.size) || 150, 45, 270) * .72,
+        rotation: random(-.35, .35),
+        phase: random(0, Math.PI * 2)
+      }));
+
+      const emptySeed = Array.from(
+        {
+          length: Math.max(12, Math.min(70, Number(emptyBubbleCount) || 30))
+        },
+        (_, i) => ({
+          kind: 'empty',
+          id: `video-empty-${i}-${Math.random().toString(36).slice(2)}`,
+          // 小さいバブルを多めにして奥行きを作る
+          size: Math.round(
+            random(16, 92) *
+            (i % 5 === 0 ? random(.65, .95) : random(.28, .78))
+          ),
+          start: (i * .72 + random(0, 1.8)) % Math.max(4, seconds - 3),
+          duration: random(10, 22),
+          x: random(.04, .96) * canvas.width,
+          drift: random(-260, 260),
+          rotation: random(-.45, .45),
+          phase: random(0, Math.PI * 2)
+        })
+      );
+
+      const textSeed = textBubbles.map((b, i) => ({
+        kind: 'text',
+        id: b.id,
+        text: String(b.text || '').slice(0, 4),
+        messageId: b.messageId || b.id,
+        index: Number(b.textIndex) || i,
+        length: Number(b.textLength) || 1,
+        start:
+          Math.min(
+            seconds - 5,
+            1.5 + (i % 6) * 2.1
+          ),
+        duration: Math.min(
+          seconds - 2,
+          Math.max(9, Number(b.duration) || 18)
+        ),
+        x: random(.12, .88) * canvas.width,
+        drift: random(-210, 210),
+        size: clamp(Number(b.size) || 100, 55, 150) * .78,
+        rotation: random(-.32, .32),
+        phase: random(0, Math.PI * 2)
+      }));
+
+      const seed = [...photoSeed, ...textSeed, ...emptySeed];
 
       recorder.start(250);
       const startedAt = performance.now();
@@ -1826,19 +2014,76 @@ export default function App() {
             if (local < 0 || local > 1) return;
 
             const ease = local * local * (3 - 2 * local);
-            const x = item.x + Math.sin(local * Math.PI * 2 + item.phase) * item.drift;
-            const y = canvas.height + item.size - ease * (canvas.height + item.size * 2.1);
-            const fade = local < .10 ? local / .10 : local > .86 ? (1 - local) / .14 : 1;
+            const fadeIn = Math.min(1, local / .10);
+            const fadeOut = local > .84
+              ? Math.max(0, (1 - local) / .16)
+              : 1;
+            const fade = fadeIn * fadeOut;
+
+            // 下から出てきて、中央付近を通りながら上へ抜ける。
+            const baseY =
+              canvas.height + item.size -
+              ease * (canvas.height + item.size * 2.15);
+
+            let x =
+              item.x +
+              Math.sin(
+                local * Math.PI * 2.0 + item.phase
+              ) * item.drift;
+
+            let y = baseY;
+
+            // 文字は同じ言葉の文字同士が途中で中央に寄る。
+            if (item.kind === 'empty') {
+              // 空バブルも真上だけではなく、左右に大きく漂う。
+              x +=
+                Math.sin(local * Math.PI * 2.6 + item.phase * 1.7) *
+                item.drift * .45;
+              y +=
+                Math.sin(local * Math.PI * 3.2 + item.phase) *
+                Math.min(45, item.size * .65);
+            }
+
+            if (item.kind === 'text') {
+              const centerPull =
+                Math.sin(Math.min(1, local) * Math.PI);
+              const groupOffset =
+                (item.index - (item.length - 1) / 2) *
+                Math.min(62, item.size * .56);
+
+              x =
+                x * (1 - centerPull * .52) +
+                (canvas.width / 2 + groupOffset) *
+                (centerPull * .52);
+
+              y -= centerPull * 110;
+            }
 
             ctx.save();
-            ctx.globalAlpha = Math.max(0, Math.min(1, fade));
+            ctx.globalAlpha = Math.max(
+              0,
+              Math.min(1, fade)
+            );
             ctx.translate(x, y);
-            ctx.rotate(item.rotation * Math.sin(local * Math.PI * 2));
-            drawBubble(item);
+            ctx.rotate(
+              item.rotation *
+              Math.sin(local * Math.PI * 2 + item.phase)
+            );
+
+            if (item.kind === 'photo') {
+              drawPhotoBubble(item);
+            } else if (item.kind === 'text') {
+              drawTextBubble(item);
+            } else {
+              drawEmptyBubble(item);
+            }
+
             ctx.restore();
           });
 
-          setRecordingProgress(Math.round((t / seconds) * 100));
+          setRecordingProgress(
+            Math.round((t / seconds) * 100)
+          );
 
           if (elapsed >= seconds) {
             cancelAnimationFrame(raf);
@@ -1848,14 +2093,17 @@ export default function App() {
           }
           raf = requestAnimationFrame(frame);
         };
+
         raf = requestAnimationFrame(frame);
       });
 
       await stopped;
       stream.getTracks().forEach(track => track.stop());
 
-      const blob = new Blob(chunks, { type: mimeType });
-      const ext = mimeType.startsWith('video/mp4') ? 'mp4' : 'webm';
+      const blob = new Blob([chunks], { type: mimeType });
+      const ext = mimeType.startsWith('video/mp4')
+        ? 'mp4'
+        : 'webm';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
