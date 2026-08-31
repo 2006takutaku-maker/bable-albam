@@ -1,4 +1,6 @@
  import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { FFmpeg } from '@ffmpeg/ffmpeg';
+import { fetchFile, toBlobURL } from '@ffmpeg/util';
 import { initializeApp } from 'firebase/app';
 import {
   getFirestore,
@@ -807,6 +809,12 @@ export default function App() {
     useState('');
   const [recordingProgress, setRecordingProgress] =
     useState(0);
+
+  // ブラウザ録画後にH.264 MP4へ変換するFFmpeg.wasm。
+  // これを使うことで、WebMの中身を.mp4に偽装することなく、
+  // Windows/Instagram向けの一般的なH.264 MP4を生成する。
+  const ffmpegRef = useRef(null);
+  const ffmpegLoadingRef = useRef(null);
 
   const [isTocOpen, setIsTocOpen] =
     useState(false);
@@ -1782,10 +1790,7 @@ export default function App() {
       b => b.type === 'text' && String(b.text || '').trim()
     );
 
-    if (!photoBubbles.length && !textBubbles.length) {
-      alert('動画に入れる写真または文字がありません。');
-      return;
-    }
+    // 写真・文字がなくても空バブルだけで動画を作れる。
 
     if (!window.MediaRecorder) {
       alert('このブラウザでは動画の録画に対応していません。Chrome / Edgeで試してください。');
@@ -1826,51 +1831,24 @@ export default function App() {
         } catch {}
       }
 
-      // MP4 はブラウザ/OSによって「対応している」と判定されても
-      // 実際の書き出しで再生できないことがあるため、H.264の
-      // Constrained Baseline を最優先し、実際にMediaRecorderが採用した
-      // mimeTypeをそのまま保存形式に使う。
-      // WebMを .mp4 に偽装しない。
-      // 本当にMP4を録画できる環境だけMP4、それ以外はWebM。
-      const mp4Types = [
-        'video/mp4;codecs=avc1.42E01E',
-        'video/mp4;codecs=avc1.424028',
-        'video/mp4'
-      ];
-      const webmTypes = [
+      // まずブラウザで安定して録画できるVP8/WebMを作る。
+      // その後FFmpeg.wasmでH.264/yuv420pのMP4へ変換する。
+      // これなら「WebMなのに.mp4」という壊れたファイルを作らない。
+      const recordingTypes = [
         'video/webm;codecs=vp8',
-        'video/webm;codecs=vp9',
         'video/webm'
       ];
-      const mp4Type = mp4Types.find(type =>
+      const mimeType = recordingTypes.find(type =>
         MediaRecorder.isTypeSupported(type)
       );
-      const webmType = webmTypes.find(type =>
-        MediaRecorder.isTypeSupported(type)
-      );
-      const mimeType = mp4Type || webmType || '';
-      if (!mimeType) throw new Error('録画形式が見つかりません');
+      if (!mimeType) throw new Error('WebM録画に対応したブラウザではありません。Chrome / Edgeで試してください。');
 
       const stream = canvas.captureStream(30);
       const chunks = [];
-      let recorder;
-      try {
-        recorder = new MediaRecorder(stream, {
-          mimeType,
-          videoBitsPerSecond: 5_000_000
-        });
-      } catch (e) {
-        // MP4生成に失敗するブラウザではWebMへフォールバック。
-        const fallback = [
-          'video/webm;codecs=vp8',
-          'video/webm'
-        ].find(type => MediaRecorder.isTypeSupported(type));
-        if (!fallback) throw e;
-        recorder = new MediaRecorder(stream, {
-          mimeType: fallback,
-          videoBitsPerSecond: 5_000_000
-        });
-      }
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 4_000_000
+      });
 
       recorder.ondataavailable = e => {
         if (e.data && e.data.size) chunks.push(e.data);
@@ -2219,25 +2197,77 @@ export default function App() {
       await stopped;
       stream.getTracks().forEach(track => track.stop());
 
-      // MediaRecorderが実際に採用した形式を使う。
-      // 「WebMの中身なのに .mp4」という壊れたファイルを絶対に作らない。
-      const actualMimeType = recorder.mimeType || mimeType;
-      const blob = new Blob([chunks], { type: actualMimeType });
-      const isMp4 = actualMimeType.toLowerCase().startsWith('video/mp4');
-      const ext = isMp4 ? 'mp4' : 'webm';
-      const url = URL.createObjectURL(blob);
+      // ブラウザ録画結果は必ずWebMとして扱う。
+      const recordedBlob = new Blob([chunks], { type: recorder.mimeType || mimeType });
+      if (!recordedBlob.size) {
+        throw new Error('録画データが空でした');
+      }
+
+      setRecordingProgress(82);
+
+      // FFmpeg.wasmを遅延ロード。初回だけコアをダウンロードする。
+      let ffmpeg = ffmpegRef.current;
+      if (!ffmpeg) {
+        ffmpeg = new FFmpeg();
+        ffmpegRef.current = ffmpeg;
+      }
+
+      if (!ffmpeg.loaded) {
+        if (!ffmpegLoadingRef.current) {
+          ffmpegLoadingRef.current = (async () => {
+            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd';
+            await ffmpeg.load({
+              coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+              wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+            });
+          })().catch(err => {
+            ffmpegLoadingRef.current = null;
+            throw err;
+          });
+        }
+        await ffmpegLoadingRef.current;
+      }
+
+      // 既存ファイルを消してから変換。
+      try { await ffmpeg.deleteFile('input.webm'); } catch {}
+      try { await ffmpeg.deleteFile('output.mp4'); } catch {}
+
+      await ffmpeg.writeFile('input.webm', await fetchFile(recordedBlob));
+
+      // Instagram/Windowsで扱いやすいH.264 + yuv420p + faststartへ正規化。
+      await ffmpeg.exec([
+        '-i', 'input.webm',
+        '-an',
+        '-c:v', 'libx264',
+        '-preset', 'veryfast',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',
+        '-r', '30',
+        '-vf', 'scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2',
+        'output.mp4'
+      ]);
+
+      setRecordingProgress(96);
+      const mp4Data = await ffmpeg.readFile('output.mp4');
+      const mp4Blob = new Blob([mp4Data], { type: 'video/mp4' });
+
+      if (!mp4Blob.size) {
+        throw new Error('MP4変換後のファイルが空でした');
+      }
+
+      const url = URL.createObjectURL(mp4Blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `bable-albam-instagram-${seconds}s.${ext}`;
+      a.download = `bable-albam-instagram-${seconds}s.mp4`;
       document.body.appendChild(a);
       a.click();
-      if (!isMp4) {
-        setTimeout(() => {
-          alert('このブラウザはMP4録画に対応していないため、WebMで保存しました。WindowsではEdge/Chromeで開けます。Instagram用MP4が必要な場合は、MP4対応ブラウザで書き出してください。');
-        }, 300);
-      }
       a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+      // 次回変換のメモリを軽くする。
+      try { await ffmpeg.deleteFile('input.webm'); } catch {}
+      try { await ffmpeg.deleteFile('output.mp4'); } catch {}
     } catch (error) {
       console.error('動画書き出しエラー:', error);
       alert('動画の作成に失敗しました。Chrome / Edgeで再度試してください。');
