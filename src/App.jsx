@@ -2215,7 +2215,7 @@ export default function App() {
       if (!ffmpeg.loaded) {
         if (!ffmpegLoadingRef.current) {
           ffmpegLoadingRef.current = (async () => {
-            const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd';
+            const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
             await ffmpeg.load({
               coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
               wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
@@ -2270,7 +2270,7 @@ export default function App() {
       try { await ffmpeg.deleteFile('output.mp4'); } catch {}
     } catch (error) {
       console.error('動画書き出しエラー:', error);
-      alert('動画の作成に失敗しました。Chrome / Edgeで再度試してください。');
+      alert(`動画の作成に失敗しました。\n${error?.message || 'Chrome / Edgeで再度試してください。'}`);
     } finally {
       setIsRecordingVideo(false);
       setRecordingProgress(0);
