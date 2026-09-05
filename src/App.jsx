@@ -2206,35 +2206,32 @@ export default function App() {
       setRecordingProgress(82);
 
       // FFmpeg.wasmを遅延ロード。初回だけコアをダウンロードする。
-      let ffmpeg = ffmpegRef.current;
-      if (!ffmpeg) {
-        ffmpeg = new FFmpeg();
-        ffmpegRef.current = ffmpeg;
+      // FFmpegは書き込み先のMEMFSが壊れた状態を再利用しないよう、
+      // 書き出しごとに新しいインスタンスを使う。
+      const ffmpeg = new FFmpeg();
+      ffmpegRef.current = ffmpeg;
+
+      ffmpeg.on('log', ({ message }) => {
+        console.log('[FFmpeg]', message);
+      });
+
+      const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
+      setRecordingProgress(84);
+      await ffmpeg.load({
+        coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+        wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+      });
+
+      // 録画データを必ず正しいWebMファイルとしてMEMFSへ書き込む。
+      const inputBytes = await fetchFile(recordedBlob);
+      if (!inputBytes || !inputBytes.length) {
+        throw new Error('FFmpegへ渡す録画データが空です');
       }
+      await ffmpeg.writeFile('input.webm', inputBytes);
 
-      if (!ffmpeg.loaded) {
-        if (!ffmpegLoadingRef.current) {
-          ffmpegLoadingRef.current = (async () => {
-            const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/esm';
-            await ffmpeg.load({
-              coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-              wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
-            });
-          })().catch(err => {
-            ffmpegLoadingRef.current = null;
-            throw err;
-          });
-        }
-        await ffmpegLoadingRef.current;
-      }
+      setRecordingProgress(88);
 
-      // 既存ファイルを消してから変換。
-      try { await ffmpeg.deleteFile('input.webm'); } catch {}
-      try { await ffmpeg.deleteFile('output.mp4'); } catch {}
-
-      await ffmpeg.writeFile('input.webm', await fetchFile(recordedBlob));
-
-      // Instagram/Windowsで扱いやすいH.264 + yuv420p + faststartへ正規化。
+      // H.264 / yuv420p / faststart のMP4へ変換。
       await ffmpeg.exec([
         '-i', 'input.webm',
         '-an',
@@ -2250,7 +2247,8 @@ export default function App() {
 
       setRecordingProgress(96);
       const mp4Data = await ffmpeg.readFile('output.mp4');
-      const mp4Blob = new Blob([mp4Data], { type: 'video/mp4' });
+      const mp4Bytes = mp4Data instanceof Uint8Array ? mp4Data : new Uint8Array(mp4Data);
+      const mp4Blob = new Blob([mp4Bytes.buffer], { type: 'video/mp4' });
 
       if (!mp4Blob.size) {
         throw new Error('MP4変換後のファイルが空でした');
@@ -2265,9 +2263,9 @@ export default function App() {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
 
-      // 次回変換のメモリを軽くする。
-      try { await ffmpeg.deleteFile('input.webm'); } catch {}
-      try { await ffmpeg.deleteFile('output.mp4'); } catch {}
+      // 今回のFFmpegインスタンスを破棄してMEMFSを確実に解放。
+      ffmpeg.terminate();
+      ffmpegRef.current = null;
     } catch (error) {
       console.error('動画書き出しエラー:', error);
       alert(`動画の作成に失敗しました。\n${error?.message || 'Chrome / Edgeで再度試してください。'}`);
