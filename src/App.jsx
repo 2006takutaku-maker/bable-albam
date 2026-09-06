@@ -2198,9 +2198,13 @@ export default function App() {
       stream.getTracks().forEach(track => track.stop());
 
       // ブラウザ録画結果は必ずWebMとして扱う。
-      const recordedBlob = new Blob([chunks], { type: recorder.mimeType || mimeType });
+      const recordedBlob = new Blob(chunks, { type: recorder.mimeType || mimeType });
       if (!recordedBlob.size) {
         throw new Error('録画データが空でした');
+      }
+      console.log('[動画] MediaRecorder:', recorder.mimeType, 'size=', recordedBlob.size);
+      if (!String(recorder.mimeType || mimeType).startsWith('video/')) {
+        throw new Error(`動画形式ではないデータが生成されました: ${recorder.mimeType || mimeType}`);
       }
 
       setRecordingProgress(82);
