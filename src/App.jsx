@@ -1699,6 +1699,16 @@ export default function App() {
       const batch =
         writeBatch(db);
 
+      // 同じ文章の文字は、全員が同じタイミングで中央に到達する。
+      // 文字ごとに duration / delay をランダムにすると、中央で揃わなくなる。
+      const groupDuration =
+        speedMode === 'slow'
+          ? random(22, 34)
+          : speedMode === 'fast'
+            ? random(10, 18)
+            : random(15, 25);
+      const groupDelay = random(-12, 0);
+
       chars.forEach(
         (char, index) => {
           const ref =
@@ -1741,15 +1751,10 @@ export default function App() {
             dy:
               random(-35, 35),
 
-            duration:
-              speedMode === 'slow'
-                ? random(22, 34)
-                : speedMode === 'fast'
-                  ? random(10, 18)
-                  : random(15, 25),
+            // 文章単位で完全に同じ時間軸にする。
+            duration: groupDuration,
 
-            delay:
-              random(-12, 0),
+            delay: groupDelay,
 
             opacity: 0.9,
 
@@ -2071,28 +2076,43 @@ export default function App() {
         })
       );
 
-      const textSeed = textBubbles.map((b, i) => ({
+      // 同じ文章は全て同じ start / duration にして、
+      // 動画でも中央で同時に文字列になるようにする。
+      const textGroupTiming = new Map();
+      textBubbles.forEach((b, i) => {
+        const key = b.messageId || b.id;
+        if (!textGroupTiming.has(key)) {
+          textGroupTiming.set(key, {
+            start: Math.min(
+              seconds - 5,
+              1.5 + (i % 6) * 2.1
+            ),
+            duration: Math.min(
+              seconds - 2,
+              Math.max(9, Number(b.duration) || 18)
+            )
+          });
+        }
+      });
+
+      const textSeed = textBubbles.map((b, i) => {
+        const timing = textGroupTiming.get(b.messageId || b.id);
+        return {
         kind: 'text',
         id: b.id,
         text: String(b.text || '').slice(0, 4),
         messageId: b.messageId || b.id,
         index: Number(b.textIndex) || i,
         length: Number(b.textLength) || 1,
-        start:
-          Math.min(
-            seconds - 5,
-            1.5 + (i % 6) * 2.1
-          ),
-        duration: Math.min(
-          seconds - 2,
-          Math.max(9, Number(b.duration) || 18)
-        ),
+        start: timing?.start ?? 1.5,
+        duration: timing?.duration ?? 18,
         x: random(.12, .88) * canvas.width,
         drift: random(-210, 210),
         size: clamp(Number(b.size) || 100, 55, 150) * .78,
         rotation: random(-.32, .32),
         phase: random(0, Math.PI * 2)
-      }));
+        };
+      });
 
       const seed = [...photoSeed, ...textSeed, ...emptySeed];
 
